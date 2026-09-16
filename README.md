@@ -47,6 +47,29 @@ the pass centers span `width - spot` and the beam radius covers the rest.
 `--overlap` shrinks the step, `--fill unidirectional` lifts the beam between
 passes instead of turning it around.
 
+A solid line is a stroked centerline: `--line-width` is burned exactly, but
+the ends run half a spot past `--line-length`.
+
+## Inverted lines
+
+`--invert` swaps the burn: each cell clears a `--border` frame around an
+uncut island, and `--line-width` becomes the width left standing. This is the
+isolation routing case, where the feature that matters is the copper that
+survives.
+
+```sh
+uv run laser-sweep --invert --line-width 0.3 --border 0.4 --spot 0.05,0.1,0.15
+```
+
+The frame is cut as concentric closed loops. The innermost loop sits half a
+spot outside the island, so its beam edge stops on the island boundary; the
+outermost stops half a spot inside the border, so the cleared band is exactly
+`--border` wide. `--frame-order outside-in` reverses the loops. `--fill` does
+not apply.
+
+A border narrower than the widest spot in the sweep is refused: that frame
+cannot be cut without eating into the island.
+
 ## Safety
 
 `--s-max` (default 1000) bounds the power range. `--fit WxH` refuses to write
@@ -67,11 +90,15 @@ classDiagram
         powers, speeds, spots
         line_length, line_width
         overlap, passes, fill
+        invert, border, frame_order
     }
     class layout {
         build(config) Layout
+        cell_paths(...)
         fill_line(...)
         pass_offsets(...)
+        frame_loops(...)
+        frame_offsets(...)
     }
     class Layout {
         cells, label_paths

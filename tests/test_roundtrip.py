@@ -128,3 +128,56 @@ def test_labels_burn_outside_every_cell_band():
             inside_x = left <= segment["x0"] <= right
             inside_y = bottom <= segment["y0"] <= top
             assert not (inside_x and inside_y)
+
+
+def test_inverted_gcode_never_cuts_inside_the_island():
+    plan, job = build(
+        invert=True, border=0.5, line_width=0.6, spots=[0.2], line_length=8.0
+    )
+    half_x = plan.config.line_length / 2.0
+    half_y = plan.config.line_width / 2.0
+    radius = 0.2 / 2.0
+    for segment in parse(job.text):
+        cell = min(
+            plan.cells,
+            key=lambda c: abs(c.center[0] - segment["x0"])
+            + abs(c.center[1] - segment["y0"]),
+        )
+        # An axis aligned segment is its own bounding box; grow it by the beam.
+        lo_x = min(segment["x0"], segment["x1"]) - radius - cell.center[0]
+        hi_x = max(segment["x0"], segment["x1"]) + radius - cell.center[0]
+        lo_y = min(segment["y0"], segment["y1"]) - radius - cell.center[1]
+        hi_y = max(segment["y0"], segment["y1"]) + radius - cell.center[1]
+        overlaps_x = lo_x < half_x - 1e-9 and hi_x > -half_x + 1e-9
+        overlaps_y = lo_y < half_y - 1e-9 and hi_y > -half_y + 1e-9
+        assert not (overlaps_x and overlaps_y)
+
+
+def test_inverted_gcode_clears_the_full_border():
+    plan, job = build(
+        invert=True,
+        border=0.5,
+        line_width=0.6,
+        spots=[0.1],
+        line_length=8.0,
+        powers=[300.0],
+        speeds=[500.0],
+        labels=False,
+    )
+    cell = plan.cells[0]
+    radius = 0.1 / 2.0
+    ys = [v for s in parse(job.text) for v in (s["y0"], s["y1"])]
+    xs = [v for s in parse(job.text) for v in (s["x0"], s["x1"])]
+    assert max(ys) - cell.center[1] + radius == pytest.approx(0.6 / 2 + 0.5)
+    assert max(xs) - cell.center[0] + radius == pytest.approx(8.0 / 2 + 0.5)
+
+
+def test_inverted_cells_still_carry_their_own_power_and_feed():
+    plan, job = build(invert=True, border=0.5, line_width=0.6)
+    seen = {(s["power"], s["feed"]) for s in parse(job.text)}
+    expected = {
+        (power, speed)
+        for power in plan.config.powers
+        for speed in plan.config.speeds
+    }
+    assert seen == expected

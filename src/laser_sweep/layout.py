@@ -13,6 +13,9 @@ Polyline = list[Point]
 SERPENTINE = "serpentine"
 UNIDIRECTIONAL = "unidirectional"
 
+INSIDE_OUT = "inside-out"
+OUTSIDE_IN = "outside-in"
+
 
 @dataclass(frozen=True)
 class SweepConfig:
@@ -24,6 +27,9 @@ class SweepConfig:
     overlap: float = 0.0
     passes: int = 1
     fill: str = SERPENTINE
+    invert: bool = False
+    border: float = 0.4
+    frame_order: str = INSIDE_OUT
     gap_x: float = 3.0
     gap_y: float = 2.0
     block_gap: float = 6.0
@@ -151,6 +157,87 @@ def fill_line(
     return [list(path) for _ in range(max(1, passes)) for path in single]
 
 
+def frame_offsets(border: float, spot: float, overlap: float) -> list[float]:
+    """Distances from the island edge to each loop of the surrounding frame.
+
+    The innermost loop sits half a spot outside the island so its beam edge
+    stops exactly on the island boundary, which is the width being measured.
+    A border thinner than the spot cannot hold a pass without eating into the
+    island, so it is widened to one spot rather than narrowing the island.
+    """
+    if spot <= 0:
+        raise ValueError("spot must be > 0")
+    if border <= 0:
+        raise ValueError("border must be > 0")
+    if border - spot <= 1e-9:
+        return [spot / 2.0]
+    return [border / 2.0 + offset for offset in pass_offsets(border, spot, overlap)]
+
+
+def frame_loops(
+    center: Point,
+    length: float,
+    width: float,
+    spot: float,
+    overlap: float,
+    border: float,
+    passes: int = 1,
+    order: str = INSIDE_OUT,
+) -> list[Polyline]:
+    """Closed loops that clear a border around an uncut island of `width`."""
+    if order not in (INSIDE_OUT, OUTSIDE_IN):
+        raise ValueError(f"unknown frame order {order!r}")
+    cx, cy = center
+    half_x = length / 2.0
+    half_y = width / 2.0
+    offsets = frame_offsets(border, spot, overlap)
+    if order == OUTSIDE_IN:
+        offsets = list(reversed(offsets))
+
+    single: list[Polyline] = []
+    for distance in offsets:
+        x0 = cx - half_x - distance
+        x1 = cx + half_x + distance
+        y0 = cy - half_y - distance
+        y1 = cy + half_y + distance
+        single.append([(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)])
+
+    return [list(path) for _ in range(max(1, passes)) for path in single]
+
+
+def cell_size(config: SweepConfig) -> tuple[float, float]:
+    """Footprint of one cell: the island plus its frame when inverted."""
+    if config.invert:
+        return (
+            config.line_length + 2.0 * config.border,
+            config.line_width + 2.0 * config.border,
+        )
+    return (config.line_length, config.line_width)
+
+
+def cell_paths(config: SweepConfig, center: Point, spot: float) -> list[Polyline]:
+    if config.invert:
+        return frame_loops(
+            center,
+            config.line_length,
+            config.line_width,
+            spot,
+            config.overlap,
+            config.border,
+            config.passes,
+            config.frame_order,
+        )
+    return fill_line(
+        center,
+        config.line_length,
+        config.line_width,
+        spot,
+        config.overlap,
+        config.fill,
+        config.passes,
+    )
+
+
 def build(config: SweepConfig) -> Layout:
     """Place every cell and label, then move the result onto the origin."""
     if not config.powers or not config.speeds or not config.spots:
@@ -158,10 +245,11 @@ def build(config: SweepConfig) -> Layout:
 
     rows = len(config.powers)
     cols = len(config.speeds)
-    pitch_x = config.line_length + config.gap_x
-    pitch_y = config.line_width + config.gap_y
-    grid_w = cols * config.line_length + (cols - 1) * config.gap_x
-    grid_h = rows * config.line_width + (rows - 1) * config.gap_y
+    cell_w, cell_h = cell_size(config)
+    pitch_x = cell_w + config.gap_x
+    pitch_y = cell_h + config.gap_y
+    grid_w = cols * cell_w + (cols - 1) * config.gap_x
+    grid_h = rows * cell_h + (rows - 1) * config.gap_y
 
     label_power = config.label_power
     if label_power is None:
@@ -199,9 +287,9 @@ def build(config: SweepConfig) -> Layout:
         grid_y0 = -br * block_pitch_y - top_header - grid_h
 
         for row, power in enumerate(config.powers):
-            cy = grid_y0 + config.line_width / 2.0 + row * pitch_y
+            cy = grid_y0 + cell_h / 2.0 + row * pitch_y
             for col, speed in enumerate(config.speeds):
-                cx = grid_x0 + config.line_length / 2.0 + col * pitch_x
+                cx = grid_x0 + cell_w / 2.0 + col * pitch_x
                 cell = Cell(
                     block=block_index,
                     row=row,
@@ -211,15 +299,7 @@ def build(config: SweepConfig) -> Layout:
                     speed=speed,
                     center=(cx, cy),
                 )
-                cell.paths = fill_line(
-                    cell.center,
-                    config.line_length,
-                    config.line_width,
-                    spot,
-                    config.overlap,
-                    config.fill,
-                    config.passes,
-                )
+                cell.paths = cell_paths(config, cell.center, spot)
                 cells.append(cell)
 
             if config.labels:
@@ -235,7 +315,7 @@ def build(config: SweepConfig) -> Layout:
 
         if config.labels:
             for col, speed in enumerate(config.speeds):
-                cx = grid_x0 + config.line_length / 2.0 + col * pitch_x
+                cx = grid_x0 + cell_w / 2.0 + col * pitch_x
                 label_paths.extend(
                     font.text_paths(
                         _label("F", speed, config),

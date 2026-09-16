@@ -120,3 +120,57 @@ def test_generated_files_are_ascii(tmp_path):
     for path in (out, tmp_path / "sweep.gcode.map.md",
                  tmp_path / "sweep.gcode.preview.svg"):
         path.read_text(encoding="ascii")
+
+
+def test_invert_writes_an_island_sweep(tmp_path):
+    _, out = run(
+        tmp_path, "--invert", "--power", "300", "--speed", "500", "--spot", "0.1"
+    )
+    text = out.read_text()
+    assert "; Island:" in text
+    assert "border 0.4 mm" in text
+    assert "S300.00 F500" in text
+
+
+def test_invert_reports_the_island_in_the_map(tmp_path):
+    run(tmp_path, "--invert", "--power", "300", "--speed", "500", "--spot", "0.1")
+    text = (tmp_path / "sweep.gcode.map.md").read_text()
+    assert "| Island |" in text
+    assert "Measured island" in text
+    assert "left standing" in text
+
+
+def test_invert_grows_the_sweep_by_the_border(tmp_path, capsys):
+    common = ["--dry-run", "--no-labels", "--power", "300", "--speed", "500",
+              "--spot", "0.1", "--line-length", "10", "--line-width", "1"]
+    run(tmp_path, *common)
+    plain = _size(capsys.readouterr().out)
+    run(tmp_path, *common, "--invert", "--border", "0.5")
+    inverted = _size(capsys.readouterr().out)
+
+    # A solid line is a stroked centerline, so its ends run a beam radius past
+    # the nominal length; the island's outer edge lands on the border exactly.
+    assert plain == pytest.approx((10.0 + 0.1, 1.0))
+    assert inverted == pytest.approx((10.0 + 1.0, 1.0 + 1.0))
+
+
+def _size(summary: str) -> tuple[float, float]:
+    line = next(line for line in summary.splitlines() if line.startswith("size"))
+    width, _, height, _ = line.split()[1:]
+    return float(width), float(height)
+
+
+def test_border_narrower_than_the_widest_spot_is_rejected(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        run(tmp_path, "--invert", "--border", "0.1", "--spot", "0.05,0.1,0.3")
+    assert exc.value.code == 2
+
+
+def test_border_is_only_checked_when_inverting(tmp_path):
+    code, _ = run(tmp_path, "--border", "0.01", "--spot", "0.2")
+    assert code == 0
+
+
+def test_frame_order_is_accepted(tmp_path):
+    _, out = run(tmp_path, "--invert", "--frame-order", "outside-in", "--spot", "0.1")
+    assert "loops outside-in" in out.read_text()

@@ -20,3 +20,18 @@
   estimated burn time), SVG preview.
 - 100 tests, including a round trip that parses the emitted gcode back and
   checks the burned band width, gap freedom and power/feed pairs.
+
+## Inverted lines (2026-09-15)
+
+- `--invert` clears a `--border` frame around an uncut island, with
+  `--line-width` as the width left standing. Concentric closed loops, offsets
+  running from half a spot outside the island to half a spot inside the
+  border, so the island and the cleared band are both exact.
+- `--frame-order inside-out|outside-in`.
+- Border narrower than the widest swept spot is refused with a message naming
+  both values.
+- Cell footprint, grid pitch, fit check, preview, gcode header and map
+  worksheet all follow the inverted geometry.
+- 24 further tests, including gcode round trips proving no cut segment (grown
+  by the beam radius) enters the island and the cleared band reaches the full
+  border.

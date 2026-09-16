@@ -21,9 +21,10 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
         f"| Power (S) | {_values(config.powers)} |",
         f"| Speed (F) | {_values(config.speeds)} mm/min |",
         f"| Spot size | {_values(config.spots)} mm |",
-        f"| Line | {config.line_length:g} x {config.line_width:g} mm |",
-        f"| Fill | {config.fill}, overlap {config.overlap:g},"
-        f" {config.passes} pass(es) |",
+        f"| {_shape_name(config)} | {config.line_length:g} x"
+        f" {config.line_width:g} mm |",
+        f"| {_fill_name(config)} | {_fill_value(config)},"
+        f" overlap {config.overlap:g}, {config.passes} pass(es) |",
         f"| Cells | {len(layout.cells)} |",
         f"| Paths | {job.path_count} |",
         f"| Cut length | {job.cut_length:.1f} mm |",
@@ -39,9 +40,19 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
         "columns are speed (`F`, bottom edge, increasing to the right).",
         "",
     ]
+    if config.invert:
+        lines.extend(
+            [
+                f"Each cell clears a {config.border:g} mm border around an island"
+                f" meant to be left standing at {config.line_width:g} mm wide.",
+                "Measure the island, not the cut: a beam wider than the machine is"
+                " set up for eats into it from both sides.",
+                "",
+            ]
+        )
 
     lines.extend(_cell_maps(layout))
-    lines.extend(_worksheet(job))
+    lines.extend(_worksheet(job, config.invert))
     lines.extend(_timeline(layout, job))
     return "\n".join(lines) + "\n"
 
@@ -72,13 +83,14 @@ def _cell_maps(layout: Layout) -> list[str]:
     return lines
 
 
-def _worksheet(job: Job) -> list[str]:
+def _worksheet(job: Job, invert: bool) -> list[str]:
+    feature = "island" if invert else "line"
     lines = [
         "## Worksheet",
         "",
-        "Measure each line and fill in the last two columns.",
+        f"Measure each {feature} and fill in the last two columns.",
         "",
-        "| Spot | Power | Speed | X | Y | Time | Measured width | Notes |",
+        f"| Spot | Power | Speed | X | Y | Time | Measured {feature} | Notes |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for record in job.records:
@@ -117,6 +129,20 @@ def _timeline(layout: Layout, job: Job) -> list[str]:
     lines.append("```")
     lines.append("")
     return lines
+
+
+def _shape_name(config) -> str:
+    return "Island" if config.invert else "Line"
+
+
+def _fill_name(config) -> str:
+    return "Frame" if config.invert else "Fill"
+
+
+def _fill_value(config) -> str:
+    if config.invert:
+        return f"{config.border:g} mm border, loops {config.frame_order}"
+    return config.fill
 
 
 def _values(values: list[float]) -> str:

@@ -186,14 +186,26 @@ def _header_comments(layout: Layout, options: GcodeOptions) -> list[str]:
         f"Power (S):    {_values(config.powers)} of {options.s_max:g}",
         f"Speed (F):    {_values(config.speeds)} mm/min",
         f"Spot size:    {_values(config.spots)} mm",
-        f"Line:         {config.line_length:g} x {config.line_width:g} mm,"
-        f" fill {config.fill}, overlap {config.overlap:g}, passes {config.passes}",
+        _shape_comment(config),
         f"Grid:         {len(config.speeds)} speed x {len(config.powers)} power"
         f" x {len(config.spots)} spot = {len(layout.cells)} cells",
         f"Extent:       X {min_x:.2f} to {max_x:.2f}, Y {min_y:.2f} to {max_y:.2f} mm",
         "Labels:       left P=power, bottom F=speed, top d=spot",
         "",
     ]
+
+
+def _shape_comment(config) -> str:
+    if config.invert:
+        return (
+            f"Island:       {config.line_length:g} x {config.line_width:g} mm left"
+            f" standing, border {config.border:g} mm, loops {config.frame_order},"
+            f" overlap {config.overlap:g}, passes {config.passes}"
+        )
+    return (
+        f"Line:         {config.line_length:g} x {config.line_width:g} mm,"
+        f" fill {config.fill}, overlap {config.overlap:g}, passes {config.passes}"
+    )
 
 
 def _values(values: list[float]) -> str:

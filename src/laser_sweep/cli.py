@@ -45,7 +45,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--fill",
         choices=(layout.SERPENTINE, layout.UNIDIRECTIONAL),
         default=layout.SERPENTINE,
-        help="serpentine keeps the beam on through the turns",
+        help="serpentine keeps the beam on through the turns, solid lines only",
+    )
+    line.add_argument(
+        "--invert",
+        action="store_true",
+        help="clear a border around an uncut island instead of burning a solid"
+        " line; --line-width is then the width left standing",
+    )
+    line.add_argument(
+        "--border",
+        type=float,
+        default=0.4,
+        help="mm cleared around the island, --invert only",
+    )
+    line.add_argument(
+        "--frame-order",
+        choices=(layout.INSIDE_OUT, layout.OUTSIDE_IN),
+        default=layout.INSIDE_OUT,
+        help="which frame loop runs first, --invert only",
     )
 
     place = parser.add_argument_group("placement")
@@ -140,6 +158,15 @@ def _config(args: argparse.Namespace) -> layout.SweepConfig:
         raise ValueError("passes must be >= 1")
     if not 0.0 <= args.overlap < 1.0:
         raise ValueError("overlap must be in [0, 1)")
+    if args.invert:
+        if args.border <= 0:
+            raise ValueError("border must be > 0")
+        if args.border < max(spots):
+            raise ValueError(
+                f"border {args.border:g} mm is narrower than the widest spot"
+                f" {max(spots):g} mm, so the frame cannot be cut without eating"
+                " into the island; raise --border or lower --spot"
+            )
     return layout.SweepConfig(
         powers=powers,
         speeds=speeds,
@@ -149,6 +176,9 @@ def _config(args: argparse.Namespace) -> layout.SweepConfig:
         overlap=args.overlap,
         passes=args.passes,
         fill=args.fill,
+        invert=args.invert,
+        border=args.border,
+        frame_order=args.frame_order,
         gap_x=args.gap_x,
         gap_y=args.gap_y,
         block_gap=args.block_gap,
