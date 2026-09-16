@@ -3,6 +3,7 @@ import re
 
 import pytest
 
+from backlash_sim import assert_cuts_land, geometry_points, xy
 from laser_sweep import gcode, layout
 
 
@@ -163,12 +164,6 @@ def test_output_is_ascii_only():
     text.encode("ascii")
 
 
-def xy(line: str) -> tuple[float, float]:
-    match = re.match(r"G[01] X(\S+) Y(\S+)", line)
-    assert match, line
-    return float(match.group(1)), float(match.group(2))
-
-
 def test_approach_enters_every_path_from_below_left():
     job = generate(plan(powers=[100.0, 200.0]), approach=2.0, return_home=False)
     rapids = [line for line in job.text.splitlines() if line.startswith("G0 ")]
@@ -206,62 +201,22 @@ def test_approach_is_recorded_in_the_header():
     assert "Approach:     1.5 mm" in generate(plan(), approach=1.5).text
 
 
-def simulate(text: str, backlash: tuple[float, float], start_negative: bool = True):
-    """Drive a head with a dead band through the emitted moves.
-
-    The motor drags the head: the head only moves once the motor has crossed
-    the backlash in the new direction. Starting in the negative state proves
-    the job establishes its own reference before cutting.
-    """
-    motor = [0.0, 0.0]
-    head = [b if start_negative else 0.0 for b in backlash]
-    moves = []
-    for line in text.splitlines():
-        if not re.match(r"G[01] X", line):
-            continue
-        target = xy(line)
-        motor_before, head_before = list(motor), list(head)
-        for axis in (0, 1):
-            motor[axis] = target[axis]
-            if motor[axis] > head[axis]:
-                head[axis] = motor[axis]
-            elif motor[axis] + backlash[axis] < head[axis]:
-                head[axis] = motor[axis] + backlash[axis]
-        moves.append((line[:2], motor_before, list(motor), head_before, list(head)))
-    return moves
-
-
-def assert_cuts_land_on_geometry(plan_, job, backlash):
-    moves = simulate(job.text, backlash)
-    cut_ends = [tuple(head) for kind, _, _, _, head in moves if kind == "G1"]
-    wanted = [tuple(p) for cell in plan_.travel_order() for path in cell.paths for p in path[1:]]
-    assert len(cut_ends) == len(wanted)
-    for got, want in zip(cut_ends, wanted):
-        assert got == pytest.approx(want, abs=2e-3)
-    for kind, m0, m1, h0, h1 in moves:
-        if kind == "G1":
-            for axis in (0, 1):
-                assert abs(h1[axis] - h0[axis]) == pytest.approx(
-                    abs(m1[axis] - m0[axis]), abs=1e-9
-                ), "beam on while the head stood still"
-
-
 def test_backlash_lands_every_loop_side_on_the_geometry():
     plan_ = plan(invert=True, border=0.5)
     job = generate(plan_, backlash=(0.2, 0.1), return_home=False)
-    assert_cuts_land_on_geometry(plan_, job, (0.2, 0.1))
+    assert_cuts_land(job.text, geometry_points(plan_), (0.2, 0.1))
 
 
 def test_backlash_keeps_a_serpentine_fill_exact():
     plan_ = plan()
     job = generate(plan_, backlash=(0.3, 0.3), return_home=False)
-    assert_cuts_land_on_geometry(plan_, job, (0.3, 0.3))
+    assert_cuts_land(job.text, geometry_points(plan_), (0.3, 0.3))
 
 
 def test_backlash_composes_with_the_approach():
     plan_ = plan(invert=True, border=0.1)  # a single loop
     job = generate(plan_, backlash=(0.2, 0.1), approach=2.0, return_home=False)
-    assert_cuts_land_on_geometry(plan_, job, (0.2, 0.1))
+    assert_cuts_land(job.text, geometry_points(plan_), (0.2, 0.1))
     rapids = [line for line in job.text.splitlines() if line.startswith("G0 ")]
     # state setting pair, staging pair, and a take-up before each of the two
     # sides that reverse an axis

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .backlash import Compensator, format_coord
 from .layout import (
     Cell,
     Layout,
@@ -52,70 +53,16 @@ class _Writer:
     def __init__(self, options: GcodeOptions) -> None:
         self.options = options
         self.lines: list[str] = []
-        self.position: tuple[float, float] | None = None
+        self.motion = Compensator(options.backlash)
         self.power: float | None = None
         self.speed: float | None = None
         self.cut_length = 0.0
         self.travel_length = 0.0
         self.path_count = 0
-        # Last commanded direction per axis: +1, -1, or 0 while still unknown.
-        self.direction = [0, 0]
 
     @property
-    def compensating(self) -> bool:
-        return any(value > 0 for value in self.options.backlash)
-
-    def _emitted(self, target: tuple[float, float]) -> tuple[float, float]:
-        """Coordinates to command so the head lands on `target`.
-
-        The positive direction is the reference: a point reached moving
-        positive is commanded as is. After a reversal the head trails the
-        motor by the backlash, so a point reached moving negative is commanded
-        one backlash further on.
-        """
-        return tuple(
-            target[axis]
-            - (self.options.backlash[axis] if self.direction[axis] < 0 else 0.0)
-            for axis in (0, 1)
-        )
-
-    def _reversals(self, target: tuple[float, float]) -> list[int]:
-        """Axes whose known direction flips on a move to `target`."""
-        if self.position is None:
-            return []
-        flipped = []
-        for axis in (0, 1):
-            delta = target[axis] - self.position[axis]
-            if abs(delta) > 1e-9:
-                sign = 1 if delta > 0 else -1
-                if self.direction[axis] and sign != self.direction[axis]:
-                    flipped.append(axis)
-        return flipped
-
-    def _step(self, target: tuple[float, float]) -> None:
-        if self.position is None:
-            return
-        for axis in (0, 1):
-            delta = target[axis] - self.position[axis]
-            if abs(delta) > 1e-9:
-                self.direction[axis] = 1 if delta > 0 else -1
-
-    def _take_up(self, target: tuple[float, float]) -> None:
-        """Cross the dead band with the beam off before a cut reverses an axis.
-
-        The rapid targets the point the head already stands on, expressed in
-        the new direction state, so the motor moves by the backlash and the
-        head stays put.
-        """
-        if not self.compensating:
-            return
-        flipped = self._reversals(target)
-        if not flipped:
-            return
-        for axis in flipped:
-            self.direction[axis] = -self.direction[axis]
-        x, y = self._emitted(self.position)
-        self.raw(f"G0 X{self.coord(x)} Y{self.coord(y)}")
+    def position(self) -> tuple[float, float] | None:
+        return self.motion.position
 
     def comment(self, text: str) -> None:
         self.lines.append(f"; {text}" if text else ";")
@@ -127,9 +74,7 @@ class _Writer:
         self.lines.append(text)
 
     def coord(self, value: float) -> str:
-        text = f"{value:.{self.options.decimals}f}"
-        # -0.000 reads badly on a machine display and confuses diffs.
-        return "0" + text[6:] if text.startswith("-0.000") else text
+        return format_coord(value, self.options.decimals)
 
     def rapid(self, target: tuple[float, float]) -> None:
         """Rapid to `target`, entering it from below left when an approach is set.
@@ -146,10 +91,14 @@ class _Writer:
     def _rapid(self, target: tuple[float, float]) -> None:
         if self.position is not None:
             self.travel_length += _distance(self.position, target)
-        self._step(target)
-        x, y = self._emitted(target)
+        x, y = self.motion.move(target)
         self.raw(f"G0 X{self.coord(x)} Y{self.coord(y)}")
-        self.position = target
+
+    def _take_up(self, target: tuple[float, float]) -> None:
+        """Cross the dead band with the beam off before a cut reverses an axis."""
+        take = self.motion.take_up(target)
+        if take is not None:
+            self.raw(f"G0 X{self.coord(take[0])} Y{self.coord(take[1])}")
 
     def path(self, points: Polyline, power: float, speed: float) -> None:
         if len(points) < 2:
@@ -159,7 +108,7 @@ class _Writer:
         self._open()
         first = True
         for point in points[1:]:
-            if not first and self.compensating and self._reversals(point):
+            if not first and self.motion.active and self.motion.reversals(point):
                 self._close()
                 self._take_up(point)
                 self._open()
@@ -176,16 +125,15 @@ class _Writer:
     def _cut(
         self, point: tuple[float, float], power: float, speed: float, first: bool
     ) -> None:
-        self._step(point)
-        x, y = self._emitted(point)
+        start = self.position
+        x, y = self.motion.move(point)
         words = f"G1 X{self.coord(x)} Y{self.coord(y)}"
         if first:
             words += f" S{power:.2f} F{_feed(speed)}"
             self.power = power
             self.speed = speed
         self.raw(words)
-        self.cut_length += _distance(self.position, point)
-        self.position = point
+        self.cut_length += _distance(start, point)
 
     def _close(self) -> None:
         self.raw("G1F1")
@@ -193,7 +141,6 @@ class _Writer:
         self.speed = 1.0
         self.power = 0.0
         self.path_count += 1
-
 
 def _distance(a: tuple[float, float], b: tuple[float, float]) -> float:
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
@@ -218,7 +165,7 @@ def generate(layout: Layout, options: GcodeOptions) -> Job:
     for line in _header_comments(layout, options):
         writer.comment(line)
 
-    if writer.compensating:
+    if writer.motion.active:
         # Any positive move longer than the dead band ends in the positive
         # state, wherever the machine was and whichever way it last moved.
         writer.blank()

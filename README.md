@@ -125,6 +125,21 @@ uv run laser-sweep --invert --line-width 0.2 --border-spots 1 --approach 2 --bac
 Measure the values from a coupon burned with `--approach`: the island length
 gives X and the open bottom left corner gives Y, both plus the true spot.
 
+## Existing files
+
+`laser-backlash` applies the same two treatments to a file from another
+tool, such as an isolation routing job:
+
+```sh
+uv run laser-backlash job.gcode --backlash 0.2,0.15 --approach 2
+```
+
+It writes `job.comp.gcode` next to the input (`-o` to choose). Absolute
+millimetre `G0`/`G1` moves are rewritten, everything else passes through
+untouched, and a cut that reverses an axis is closed, crossed with the beam
+off and reopened with the file's own `S` and `F`. Arcs, inches, relative
+moves and coordinate offsets are refused; export arcs as line segments.
+
 ## Safety
 
 `--s-max` (default 1000) bounds the power range. `--fit WxH` refuses to write
@@ -170,6 +185,15 @@ classDiagram
     class gcode {
         generate(layout, options) Job
     }
+    class backlash {
+        Compensator
+        format_coord(value, decimals)
+        parse_backlash(text)
+    }
+    class postprocess {
+        compensate(text, backlash, approach) 
+        main(argv)
+    }
     class Job {
         text, records
         cut_seconds, travel_seconds
@@ -188,6 +212,8 @@ classDiagram
     Layout --> gcode
     Layout --> preview
     gcode --> Job
+    gcode --> backlash : commands
+    postprocess --> backlash : commands
     Job --> report
     Layout --> report
 ```

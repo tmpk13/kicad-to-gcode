@@ -8,6 +8,7 @@ dependencies = []
 
 [project.scripts]
 laser-sweep = "laser_sweep.cli:main"
+laser-backlash = "laser_sweep.postprocess:main"
 
 [build-system]
 requires = ["hatchling"]

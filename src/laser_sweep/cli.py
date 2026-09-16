@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, gcode, layout, preview, report
+from .backlash import parse_backlash
 from .params import RangeError, check_positive, check_power, parse_range
 
 RANGE_HELP = (
@@ -170,21 +171,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _parse_backlash(text: str) -> tuple[float, float]:
-    parts = [part.strip() for part in text.split(",")]
-    if len(parts) not in (1, 2):
-        raise ValueError(f"--backlash expects X or X,Y, got {text!r}")
-    try:
-        values = [float(part) for part in parts]
-    except ValueError as exc:
-        raise ValueError(f"--backlash: {text!r} is not a number") from exc
-    if any(value < 0 for value in values):
-        raise ValueError("backlash must be >= 0")
-    if len(values) == 1:
-        values.append(values[0])
-    return values[0], values[1]
-
-
 def _parse_fit(text: str) -> tuple[float, float]:
     parts = text.lower().replace(",", "x").split("x")
     if len(parts) != 2:
@@ -257,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config = _config(args)
-        backlash = _parse_backlash(args.backlash)
+        backlash = parse_backlash(args.backlash)
     except (RangeError, ValueError) as exc:
         parser.error(str(exc))
 

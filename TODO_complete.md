@@ -65,3 +65,13 @@
   with a rapid that puts both axes in the positive reference state. Header
   and map record it. Simulated dead band test proves every cut lands on the
   geometry with the head never still under power. 11 further tests.
+
+## Post-processor (2026-09-16)
+
+- `laser-backlash` applies `--backlash` and `--approach` to an existing
+  absolute mm G0/G1 file, preserving every other line, restoring the file's
+  own S and F after a split, and refusing arcs, inches, relative moves and
+  offsets with the line number. Compensation extracted into a module shared
+  with the emitter; coordinate formatting no longer mangles tiny negatives at
+  4 or more decimals. 14 further tests, including the EasyTrace reference
+  file run through a simulated dead band.
