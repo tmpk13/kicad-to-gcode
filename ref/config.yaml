@@ -1,0 +1,91 @@
+board: "Generic ESP32"
+name: "CNC"
+
+arc_tolerance_mm: 0.002
+junction_deviation_mm: 0.010
+planner_blocks: 32
+
+Laser:
+  output_pin: gpio.22:pd
+  enable_pin: NO_PIN
+  disable_with_s0: true
+  s0_with_disable: false
+  tool_num: 1
+  speed_map: 0=0% 1000=100%
+  off_on_alarm: false
+  
+# uart1:
+#   txd_pin: gpio.16
+#   rxd_pin: gpio.4
+#   rts_pin: gpio.2
+#   baud: 9600
+#   mode: 8N1
+
+# Huanyang:
+#   uart_num: 1
+#   modbus_id: 1
+#   spinup_ms: 3000
+#   spindown_ms: 3000
+#   tool_num: 0
+#   off_on_alarm: false
+#   debug: 2
+#   poll_ms: 500
+#   retries: 10
+
+
+stepping:
+  engine: RMT
+  idle_ms: 255
+  dir_delay_us: 1
+  pulse_us: 4
+  disable_delay_us: 0
+
+probe:
+  pin: gpio.17:pu:low
+  toolsetter_pin: NO_PIN
+  check_mode_start: true
+  hard_stop: false
+  probe_hard_limit: false
+
+axes:
+  shared_stepper_disable_pin: gpio.25:low
+
+  x:
+    steps_per_mm: 250
+    max_rate_mm_per_min: 3000
+    acceleration_mm_per_sec2: 50
+    max_travel_mm: 300
+    motor0:
+      stepstick:
+        step_pin: gpio.26:low
+        direction_pin: gpio.4:low
+
+  y:
+    steps_per_mm: 250
+    max_rate_mm_per_min: 3000
+    acceleration_mm_per_sec2: 50
+    max_travel_mm: 300
+    motor0:
+      stepstick:
+        step_pin: gpio.14:low
+        direction_pin: gpio.13:low
+
+  z:
+    steps_per_mm: 1280
+    max_rate_mm_per_min: 1000
+    acceleration_mm_per_sec2: 25
+    max_travel_mm: 100
+    motor0:
+      stepstick:
+        step_pin: gpio.33:low
+        direction_pin: gpio.32:low
+
+spi:
+  miso_pin: gpio.19
+  mosi_pin: gpio.23
+  sck_pin: gpio.18
+
+sdcard:
+  cs_pin: gpio.5
+  card_detect_pin: NO_PIN
+  frequency_hz: 8000000

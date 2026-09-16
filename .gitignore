@@ -7,4 +7,4 @@ dist/
 build/
 out/
 *.egg-info/
-ref/
+ref/*.kicad_prl

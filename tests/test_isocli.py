@@ -186,9 +186,21 @@ BOARD = Path(__file__).parent / "data" / "board.kicad_pcb"
 @pytest.mark.skipif(
     shutil.which("kicad-cli") is None, reason="kicad-cli is not installed"
 )
+def board_copy(tmp_path) -> Path:
+    """kicad-cli writes a .kicad_prl beside the board, so work on a copy."""
+    copy = tmp_path / BOARD.name
+    shutil.copy(BOARD, copy)
+    return copy
+
+
 def test_a_board_file_is_exported_and_isolated(tmp_path):
     out = tmp_path / "from-board.gcode"
-    code = main([str(BOARD), "-o", str(out), "--spot", "0.2", "--gerber-dir", str(tmp_path / "gbr")])
+    code = main(
+        [
+            str(board_copy(tmp_path)), "-o", str(out), "--spot", "0.2",
+            "--gerber-dir", str(tmp_path / "gbr"),
+        ]
+    )
     assert code == 0
     assert "Isolation for" in out.read_text()
     assert (tmp_path / "gbr").is_dir()
@@ -202,7 +214,7 @@ def test_a_board_file_brings_its_own_outline(tmp_path):
     out = tmp_path / "whole.gcode"
     code = main(
         [
-            str(BOARD), "-o", str(out), "--spot", "0.2",
+            str(board_copy(tmp_path)), "-o", str(out), "--spot", "0.2",
             "--outline", "auto",
             "--gerber-dir", str(tmp_path / "gbr"),
         ]
