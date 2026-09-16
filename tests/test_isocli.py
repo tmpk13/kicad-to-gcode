@@ -233,3 +233,9 @@ def test_backlash_compensated_cuts_land_on_the_copper_edge(tmp_path):
     )
     wanted = [tuple(point) for loop in plan.loops for point in loop.points[1:]]
     assert_cuts_land(out.read_text(), wanted, backlash)
+
+
+def test_the_extent_never_reports_a_rounded_away_minus(tmp_path, capsys):
+    """A corner anchored job lands on 0.00, not -0.00, wherever the float lands."""
+    run(tmp_path, "--spot", "0.1", "--dry-run")
+    assert "-0.00" not in capsys.readouterr().out

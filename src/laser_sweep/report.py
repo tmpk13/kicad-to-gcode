@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .backlash import format_coord
 from .gcode import Job
 from .layout import Layout, border_for, line_width_for
 
@@ -223,8 +224,8 @@ def render_iso(plan, job: Job, gcode_name: str, source: str) -> str:
         f"| Cut length | {job.cut_length:.1f} mm |",
         f"| Travel length | {job.travel_length:.1f} mm |",
         f"| Estimated time | {_clock(job.seconds)} |",
-        f"| Extent (burned) | X {min_x:.2f} to {max_x:.2f},"
-        f" Y {min_y:.2f} to {max_y:.2f} mm |",
+        f"| Extent (burned) | X {format_coord(min_x, 2)} to {format_coord(max_x, 2)},"
+        f" Y {format_coord(min_y, 2)} to {format_coord(max_y, 2)} mm |",
         "",
     ]
 

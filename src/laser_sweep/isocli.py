@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from . import __version__, excellon, gcode, geom, gerber, isolate, preview, report
-from .backlash import parse_backlash
+from .backlash import format_coord, parse_backlash
 from .isolate import (
     ANCHOR_CENTER,
     ANCHOR_CORNER,
@@ -191,6 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 # --- finding the files -----------------------------------------------------
+
+
+def _mm(value: float) -> str:
+    """Two decimals, with a sign that rounded away dropped: -0.00 reads badly."""
+    return format_coord(value, 2)
 
 
 def layer_suffix(layer: str) -> str:
@@ -448,7 +453,8 @@ def main(argv: list[str] | None = None) -> int:
         f" at {', '.join(f'{value:.3f}' for value in plan.offsets)} mm",
         f"paths      {job.path_count}",
         f"size       {size[0]:.2f} x {size[1]:.2f} mm",
-        f"extent     X {min_x:.2f} to {max_x:.2f}, Y {min_y:.2f} to {max_y:.2f} mm",
+        f"extent     X {_mm(min_x)} to {_mm(max_x)},"
+        f" Y {_mm(min_y)} to {_mm(max_y)} mm",
         f"cut        {job.cut_length:.1f} mm, travel {job.travel_length:.1f} mm",
         f"burn       S{args.power:g} F{args.speed:g}",
         f"estimate   {job.seconds / 60.0:.1f} min",
@@ -534,7 +540,8 @@ def _header(plan, args, source: Path, holes: int) -> list[str]:
         f"Order:        {config.order}, overlap {config.overlap:g}",
         f"Placement:    {config.anchor} at {config.origin[0]:g}, {config.origin[1]:g}"
         f" mm, mirror {config.mirror}",
-        f"Extent:       X {min_x:.2f} to {max_x:.2f}, Y {min_y:.2f} to {max_y:.2f} mm",
+        f"Extent:       X {_mm(min_x)} to {_mm(max_x)},"
+        f" Y {_mm(min_y)} to {_mm(max_y)} mm",
         f"Isolation:    S{args.power:g} F{args.speed:g} of {args.s_max:g}",
     ]
     if plan.outline:
