@@ -75,3 +75,33 @@
   with the emitter; coordinate formatting no longer mangles tiny negatives at
   4 or more decimals. 14 further tests, including the EasyTrace reference
   file run through a simulated dead band.
+
+## Isolation from gerber (2026-09-16)
+
+- `laser-iso`: a copper layer in, GRBL isolation gcode out, replacing the
+  EasyTrace5000 and laser4web steps of the old pipeline. A `.kicad_pcb` is
+  accepted directly and exported with `kicad-cli` on the way past.
+- `gerber.py`: RS-274X reader. Format spec, mm and inch, standard apertures
+  (C, R, O, P) with holes, aperture macros with arithmetic and every
+  primitive except moire refused, regions, arcs in both quadrant modes,
+  polarity, step and repeat. Resolves everything to plain contours.
+- `geom.py`: polygon sets on pyclipper, the one runtime dependency. Copper
+  built from the figures in polarity order, offsets, strokes, aperture
+  sweeps as Minkowski sums, island splitting with hairline gaps welded shut.
+- `isolate.py`: loop offsets (`--passes` or `--clear`, `--overlap`,
+  `--margin`), loops turned counterclockwise from their lowest left corner so
+  `--approach` and `--backlash` still work, travel ordered per pass, mirror
+  and anchor placement over everything the job touches.
+- Copper the beam cannot part is found by counting islands before and after
+  the first offset, and the gap is bisected to say which spot size would fit.
+  Named in the summary, the map and the header, circled in the preview.
+- `excellon.py`: drill files as marks for a drill to follow, cross, ring or
+  dot; slots marked at both ends.
+- Board outline from Edge.Cuts, with `--outline-offset` and its own passes,
+  power and speed; drill marks likewise.
+- `gcode.generate_paths` emits ready made paths in the same dialect as the
+  sweep, with the same backlash treatment; `preview.render_iso` draws the
+  copper under the toolpath and `report.render_iso` writes the map.
+- 92 further tests, including a round trip that parses the emitted file back
+  and proves the beam never touches copper, and that the cleared band reaches
+  its full width.

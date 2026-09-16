@@ -191,3 +191,105 @@ def _values(values: list[float]) -> str:
 def _clock(seconds: float) -> str:
     minutes, rest = divmod(int(round(seconds)), 60)
     return f"{minutes}m {rest:02d}s"
+
+
+def render_iso(plan, job: Job, gcode_name: str, source: str) -> str:
+    """Markdown map of an isolation job: what it cuts and what it cannot."""
+    config = plan.config
+    min_x, min_y, max_x, max_y = plan.bounds
+    offsets = ", ".join(f"{value:.3f}" for value in plan.offsets)
+    lines: list[str] = [
+        "# Isolation job map",
+        "",
+        f"Generated for `{gcode_name}` from `{source}`.",
+        "",
+        "## Parameters",
+        "",
+        "| Setting | Value |",
+        "| --- | --- |",
+        f"| Spot size | {config.spot:g} mm |",
+        f"| Loops | {len(plan.offsets)} at {offsets} mm from the copper edge |",
+        f"| Cleared band | {_band(plan):g} mm each side of every feature |",
+        f"| Overlap | {config.overlap:g} |",
+        f"| Loop order | {config.order} |",
+        f"| Mirror | {config.mirror} |",
+        f"| Placement | {config.anchor} at"
+        f" {config.origin[0]:g}, {config.origin[1]:g} mm |",
+    ]
+    lines.extend(_machine_rows(job))
+    lines += [
+        f"| Copper islands | {plan.islands} |",
+        f"| Paths | {job.path_count} |",
+        f"| Cut length | {job.cut_length:.1f} mm |",
+        f"| Travel length | {job.travel_length:.1f} mm |",
+        f"| Estimated time | {_clock(job.seconds)} |",
+        f"| Extent (burned) | X {min_x:.2f} to {max_x:.2f},"
+        f" Y {min_y:.2f} to {max_y:.2f} mm |",
+        "",
+    ]
+
+    lines += ["## Phases", "", "| Phase | Paths | S | F | Cut mm | Time |", "| --- | --- | --- | --- | --- | --- |"]
+    for record in job.records:
+        lines.append(
+            f"| {record['label']} | {record['paths']} | {record['power']:g}"
+            f" | {record['speed']:g} | {record['length']:.1f}"
+            f" | {_clock(record['seconds'])} |"
+        )
+    lines.append("")
+
+    if plan.bridges:
+        lines += [
+            "## Copper the beam cannot part",
+            "",
+            f"{plan.bridged_total} group(s) of copper sit closer together than the"
+            f" {plan.offsets[0]:.3f} mm the first loop needs, so the beam grows"
+            " through the gap and they stay connected. Cut the spot size, or"
+            " open the clearance in the layout.",
+            "",
+            "| Islands | X mm | Y mm | Clearance mm | Spot that would fit |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for bridge in plan.bridges:
+            fits = max(0.0, bridge.clearance - 2.0 * config.margin)
+            lines.append(
+                f"| {bridge.islands} | {bridge.at[0]:.2f} | {bridge.at[1]:.2f}"
+                f" | {bridge.clearance:.3f} | under {fits:.3f} |"
+            )
+        if plan.bridged_total > len(plan.bridges):
+            lines.append("")
+            lines.append(
+                f"{plan.bridged_total - len(plan.bridges)} further group(s) not listed."
+            )
+        lines.append("")
+
+    lines.extend(_iso_timeline(job))
+    return "\n".join(lines) + "\n"
+
+
+def _band(plan) -> float:
+    """How wide the cleared band around a feature comes out."""
+    return plan.offsets[-1] + plan.config.spot / 2.0
+
+
+def _iso_timeline(job: Job) -> list[str]:
+    lines = [
+        "## Estimated timeline",
+        "",
+        "```mermaid",
+        "gantt",
+        "    title Burn time by phase",
+        "    dateFormat X",
+        "    axisFormat %M:%S",
+        "    section Phases",
+    ]
+    start = 0
+    for index, record in enumerate(job.records):
+        duration = max(1, int(round(record["seconds"])))
+        lines.append(f"    {record['label']} :p{index}, {start}, {duration}s")
+        start += duration
+    overhead = int(round(job.seconds)) - start
+    if overhead > 0:
+        lines.append(f"    travel :px, {start}, {overhead}s")
+    lines.append("```")
+    lines.append("")
+    return lines

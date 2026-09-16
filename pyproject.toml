@@ -4,11 +4,12 @@ version = "0.1.0"
 description = "Generate GRBL laser parameter sweep gcode (spot size, speed, power)"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["pyclipper>=1.3"]
 
 [project.scripts]
 laser-sweep = "laser_sweep.cli:main"
 laser-backlash = "laser_sweep.postprocess:main"
+laser-iso = "laser_sweep.isocli:main"
 
 [build-system]
 requires = ["hatchling"]

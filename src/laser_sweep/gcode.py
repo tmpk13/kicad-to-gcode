@@ -21,6 +21,7 @@ M3_CONSTANT = "M3"
 @dataclass(frozen=True)
 class GcodeOptions:
     s_max: float = 1000.0
+    origin: tuple[float, float] = (0.0, 0.0)
     laser_mode: str = M4_DYNAMIC
     decimals: int = 3
     rapid_rate: float = 3000.0
@@ -204,6 +205,87 @@ def generate(layout: Layout, options: GcodeOptions) -> Job:
 
     cut_seconds = sum(record["seconds"] for record in records)
     cut_seconds += _label_seconds(layout)
+    travel_seconds = (
+        writer.travel_length / options.rapid_rate * 60.0 if options.rapid_rate else 0.0
+    )
+    return Job(
+        text="\n".join(writer.lines) + "\n",
+        cut_length=writer.cut_length,
+        travel_length=writer.travel_length,
+        cut_seconds=cut_seconds,
+        travel_seconds=travel_seconds,
+        path_count=writer.path_count,
+        records=records,
+        options=options,
+    )
+
+
+@dataclass(frozen=True)
+class PathGroup:
+    """A run of paths that share one power and feed, such as an isolation pass."""
+
+    label: str
+    paths: list[Polyline]
+    power: float
+    speed: float
+
+
+def generate_paths(
+    groups: list[PathGroup], options: GcodeOptions, header: list[str]
+) -> Job:
+    """Emit ready made paths, for jobs whose geometry comes from a file."""
+    writer = _Writer(options)
+
+    writer.raw("G21         ; Set units to mm")
+    writer.raw("G90         ; Absolute positioning")
+    writer.raw("G1F1")
+    writer.raw(f"{options.laser_mode} S0")
+    for line in options.preamble:
+        writer.raw(line)
+    writer.blank()
+    for line in header:
+        writer.comment(line)
+
+    if writer.motion.active:
+        writer.blank()
+        writer.comment("both axes into the positive state")
+        reach = 2.0 * max(options.backlash)
+        ox, oy = options.origin
+        writer._rapid((ox, oy))
+        writer._rapid((ox + reach, oy + reach))
+
+    records: list[dict] = []
+    for group in groups:
+        if not group.paths:
+            continue
+        writer.blank()
+        writer.comment(
+            f"{group.label}: {len(group.paths)} paths"
+            f" power={group.power:g} speed={group.speed:g}"
+        )
+        before = writer.cut_length
+        for path in group.paths:
+            writer.path(path, group.power, group.speed)
+        length = writer.cut_length - before
+        records.append(
+            {
+                "label": group.label,
+                "paths": len(group.paths),
+                "power": group.power,
+                "speed": group.speed,
+                "length": length,
+                "seconds": length / group.speed * 60.0 if group.speed else 0.0,
+            }
+        )
+
+    writer.blank()
+    for line in options.postamble:
+        writer.raw(line)
+    writer.raw("M5          ; Switch tool off")
+    if options.return_home:
+        writer._rapid(options.origin)
+
+    cut_seconds = sum(record["seconds"] for record in records)
     travel_seconds = (
         writer.travel_length / options.rapid_rate * 60.0 if options.rapid_rate else 0.0
     )

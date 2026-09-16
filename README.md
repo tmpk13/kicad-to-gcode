@@ -1,12 +1,18 @@
 # laser-sweep
 
-Generates GRBL gcode that burns a parameter sweep for a UV laser: spot size
-against feed rate against power, drawn as lines of a settable width.
+GRBL gcode for a UV laser, in the dialect of the known good
+`laser-kinda-working.gcode` (`G21`/`G90`, `M4` dynamic power, `S` on the first
+cut move of each path).
 
-Output matches the dialect of the known good `laser-kinda-working.gcode`
-(`G21`/`G90`, `M4` dynamic power, `S` on the first cut move of each path).
+| Command | Job |
+| --- | --- |
+| `laser-sweep` | a parameter sweep: spot size against feed rate against power |
+| `laser-iso` | PCB isolation straight from a KiCad board or a gerber |
+| `laser-backlash` | backlash compensation for a file from another tool |
 
-## Usage
+The sweep finds the settings, `laser-iso` burns the board with them.
+
+## Sweep usage
 
 ```sh
 uv run laser-sweep --power 200:800:4 --speed 300:900:4 --spot 0.05,0.1,0.15
@@ -140,17 +146,78 @@ untouched, and a cut that reverses an axis is closed, crossed with the beam
 off and reopened with the file's own `S` and `F`. Arcs, inches, relative
 moves and coordinate offsets are refused; export arcs as line segments.
 
+## PCB isolation
+
+`laser-iso` takes a copper layer and cuts the loops that free every island
+from its neighbours. A `.kicad_pcb` goes straight in: `kicad-cli` exports the
+gerbers into a temporary directory on the way past.
+
+```sh
+uv run laser-iso board.kicad_pcb --spot 0.1 --power 700 --speed 350
+uv run laser-iso board-F_Cu.gbr --spot 0.1 --passes 2 --approach 2
+```
+
+It writes the same three files as the sweep: the job, a markdown map and an
+SVG preview with the copper drawn under the toolpath.
+
+| Option | Meaning |
+| --- | --- |
+| `--spot` | beam diameter; the first loop runs half a spot off the copper |
+| `--passes N` | loops around every feature, stepping out by one spot |
+| `--clear W` | mm of copper to clear instead, loops worked out from it |
+| `--margin` | extra gap between the copper edge and the first loop |
+| `--mirror x` | flip a bottom layer so it can be cut through the board |
+| `--anchor` | `corner` (default), `center`, or `keep` the gerber coordinates |
+| `--outline auto` | also cut the board profile from Edge.Cuts |
+| `--drill auto` | burn a cross or a ring at each hole for a drill to follow |
+
+`--approach` and `--backlash` mean what they do in the sweep, and every loop
+starts at its lowest left corner running positive so the compensation has
+something to hold onto.
+
+### Copper the beam cannot part
+
+Two islands closer together than twice the first loop offset cannot be
+separated: the beam grows through the gap and they stay one net. The job is
+still written, with the groups named in the map and circled in the preview,
+and the summary says which spot size would fit.
+
+```
+warning: 4 group(s) of copper sit closer than the 0.150 mm the first loop
+needs, closest 0.298 mm; they stay connected. Lower --spot or open the
+layout. See the map.
+```
+
+### Layers other than copper
+
+Any gerber works. `--layer` picks which one comes out of a board file, so a
+silkscreen or a solder mask layer can be burned with the same machinery.
+
 ## Safety
 
-`--s-max` (default 1000) bounds the power range. `--fit WxH` refuses to write
-a sweep larger than the given area. Check the preview SVG and the extent in
-the summary before running the job.
+`--s-max` (default 1000) bounds the power. `--fit WxH` refuses to write a job
+larger than the given area. Both commands print the extent and write an SVG
+preview; check them before running the job. `laser-iso` also names any copper
+its spot size cannot part, which is the mistake that costs a board.
 
 ## Architecture
+
+Three commands over one emitter. `gcode`, `backlash`, `preview` and `report`
+are shared; the sweep builds its geometry, the isolation job reads it out of
+a file.
 
 ```mermaid
 classDiagram
     class cli {
+        main(argv)
+    }
+    class isocli {
+        main(argv)
+        resolve(args) files
+        export_board(board) kicad-cli
+    }
+    class postprocess {
+        compensate(text, backlash, approach)
         main(argv)
     }
     class params {
@@ -159,19 +226,11 @@ classDiagram
     class SweepConfig {
         powers, speeds, spots
         line_length, line_width
-        overlap, passes, fill
         invert, border, frame_order
-        line_spots, border_spots
     }
     class layout {
         build(config) Layout
-        cell_paths(...)
-        line_width_for(...)
-        border_for(...)
-        slot_size(config)
-        fill_line(...)
         pass_offsets(...)
-        frame_loops(...)
         frame_offsets(...)
     }
     class Layout {
@@ -182,28 +241,64 @@ classDiagram
     class font {
         text_paths(text, ...)
     }
+    class gerber {
+        parse(text) Image
+        expand_macro(body, args)
+    }
+    class Image {
+        figures
+        bounds
+    }
+    class excellon {
+        parse(text) Drills
+        marks(drills, style, spot)
+    }
+    class geom {
+        copper(image) Polygons
+        union(a, b)
+        offset(paths, delta)
+        stroke(paths, width)
+        sweep(path, outline)
+        weld(paths, gap)
+        islands(paths)
+    }
+    class IsoConfig {
+        spot, passes, clear
+        overlap, margin, order
+        mirror, anchor, origin
+    }
+    class isolate {
+        build(copper, config) IsoPlan
+        offsets_for(config)
+        as_loop(contour)
+        find_bridges(copper, distance)
+    }
+    class IsoPlan {
+        copper, loops, offsets
+        islands, bridges
+        outline, drills, bounds
+    }
     class gcode {
         generate(layout, options) Job
-    }
-    class backlash {
-        Compensator
-        format_coord(value, decimals)
-        parse_backlash(text)
-    }
-    class postprocess {
-        compensate(text, backlash, approach) 
-        main(argv)
+        generate_paths(groups, options) Job
     }
     class Job {
         text, records
         cut_seconds, travel_seconds
     }
+    class backlash {
+        Compensator
+        parse_backlash(text)
+    }
     class preview {
         render(layout) svg
+        render_iso(plan) svg
     }
     class report {
         render(layout, job) markdown
+        render_iso(plan, job) markdown
     }
+
     cli --> params : ranges
     cli --> SweepConfig : builds
     SweepConfig --> layout
@@ -211,11 +306,25 @@ classDiagram
     layout --> font : labels
     Layout --> gcode
     Layout --> preview
+    Layout --> report
+
+    isocli --> gerber : copper, profile
+    isocli --> excellon : holes
+    isocli --> IsoConfig : builds
+    gerber --> Image : produces
+    Image --> geom
+    geom --> isolate : copper polygons
+    IsoConfig --> isolate
+    isolate --> IsoPlan : produces
+    IsoPlan --> gcode
+    IsoPlan --> preview
+    IsoPlan --> report
+
     gcode --> Job
     gcode --> backlash : commands
     postprocess --> backlash : commands
     Job --> report
-    Layout --> report
+    isolate --> layout : frame_offsets
 ```
 
 ## Development
