@@ -10,6 +10,10 @@ from laser_sweep import gcode, layout
 
 WORD = re.compile(r"([A-Z])(-?\d*\.?\d+)")
 
+# Coordinates are emitted at GcodeOptions.decimals, so a measured span carries
+# a rounding error at each end.
+QUANTUM = 2e-3
+
 
 def parse(text: str) -> list[dict]:
     """Return the cut segments a GRBL controller would run, with modal S and F."""
@@ -181,3 +185,45 @@ def test_inverted_cells_still_carry_their_own_power_and_feed():
         for speed in plan.config.speeds
     }
     assert seen == expected
+
+
+def test_a_spot_multiple_width_gives_every_block_the_same_pass_count():
+    spots = [0.05, 0.1, 0.2]
+    plan, job = build(
+        powers=[300.0], speeds=[500.0], spots=spots, line_spots=4.0, labels=False
+    )
+    for cell in plan.cells:
+        # Cells sit in separate blocks, so a Y window picks one out on its own.
+        rows = {
+            round(s["y0"], 6)
+            for s in parse(job.text)
+            if abs(s["y0"] - cell.center[1]) < cell.width
+        }
+        assert len(rows) == 4
+        assert max(rows) - min(rows) + cell.spot == pytest.approx(
+            4 * cell.spot, abs=QUANTUM
+        )
+
+
+def test_a_spot_multiple_border_keeps_the_island_the_same_in_every_block():
+    spots = [0.05, 0.1, 0.2]
+    plan, job = build(
+        powers=[300.0],
+        speeds=[500.0],
+        spots=spots,
+        invert=True,
+        line_width=0.4,
+        border_spots=3.0,
+        labels=False,
+    )
+    segments = parse(job.text)
+    for cell in plan.cells:
+        near = [
+            s for s in segments if abs(s["y0"] - cell.center[1]) < 0.4 + cell.border
+        ]
+        inner = min(abs(s["y0"] - cell.center[1]) for s in near)
+        assert inner - cell.spot / 2 == pytest.approx(0.2, abs=QUANTUM)
+        outer = max(abs(s["y0"] - cell.center[1]) for s in near)
+        assert outer + cell.spot / 2 == pytest.approx(
+            0.2 + 3 * cell.spot, abs=QUANTUM
+        )

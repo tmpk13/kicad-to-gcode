@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .layout import Cell, Layout, Polyline, path_length
+from .layout import (
+    Cell,
+    Layout,
+    Polyline,
+    border_for,
+    line_width_for,
+    path_length,
+)
 
 M4_DYNAMIC = "M4"
 M3_CONSTANT = "M3"
@@ -165,6 +172,7 @@ def _record(cell: Cell, length: float) -> dict:
         "speed": cell.speed,
         "x": cell.center[0],
         "y": cell.center[1],
+        "width": cell.width,
         "passes": len(cell.paths),
         "length": length,
         "seconds": length / cell.speed * 60.0 if cell.speed else 0.0,
@@ -195,15 +203,33 @@ def _header_comments(layout: Layout, options: GcodeOptions) -> list[str]:
     ]
 
 
+def _sized(count: float | None, fixed: float, resolved: list[float]) -> str:
+    """Either a fixed millimetre size or a spot multiple with what it works out as."""
+    if count is None:
+        return f"{fixed:g} mm"
+    values = ", ".join(f"{value:g}" for value in resolved)
+    return f"{count:g} spots ({values} mm)"
+
+
 def _shape_comment(config) -> str:
+    width = _sized(
+        config.line_spots,
+        config.line_width,
+        [line_width_for(config, spot) for spot in config.spots],
+    )
     if config.invert:
+        border = _sized(
+            config.border_spots,
+            config.border,
+            [border_for(config, spot) for spot in config.spots],
+        )
         return (
-            f"Island:       {config.line_length:g} x {config.line_width:g} mm left"
-            f" standing, border {config.border:g} mm, loops {config.frame_order},"
+            f"Island:       {config.line_length:g} mm x {width} left standing,"
+            f" border {border}, loops {config.frame_order},"
             f" overlap {config.overlap:g}, passes {config.passes}"
         )
     return (
-        f"Line:         {config.line_length:g} x {config.line_width:g} mm,"
+        f"Line:         {config.line_length:g} mm x {width},"
         f" fill {config.fill}, overlap {config.overlap:g}, passes {config.passes}"
     )
 

@@ -174,3 +174,63 @@ def test_border_is_only_checked_when_inverting(tmp_path):
 def test_frame_order_is_accepted(tmp_path):
     _, out = run(tmp_path, "--invert", "--frame-order", "outside-in", "--spot", "0.1")
     assert "loops outside-in" in out.read_text()
+
+
+def test_line_spots_sizes_the_line_from_each_blocks_spot(tmp_path):
+    _, out = run(
+        tmp_path, "--line-spots", "4", "--spot", "0.05,0.1", "--power", "300",
+        "--speed", "500",
+    )
+    text = out.read_text()
+    assert "; Line:" in text
+    assert "4 spots (0.2, 0.4 mm)" in text
+
+
+def test_border_spots_sizes_the_frame_from_each_blocks_spot(tmp_path):
+    _, out = run(
+        tmp_path, "--invert", "--border-spots", "3", "--spot", "0.05,0.1",
+        "--power", "300", "--speed", "500",
+    )
+    text = out.read_text()
+    assert "border 3 spots (0.15, 0.3 mm)" in text
+
+
+def test_spot_multiples_show_up_per_block_in_the_map(tmp_path):
+    run(tmp_path, "--line-spots", "4", "--spot", "0.05,0.1", "--power", "300",
+        "--speed", "500")
+    text = (tmp_path / "sweep.gcode.map.md").read_text()
+    assert "### Spot 0.05 mm (line 0.2 mm)" in text
+    assert "### Spot 0.1 mm (line 0.4 mm)" in text
+    assert "Target line" in text
+
+
+def test_line_width_and_line_spots_are_mutually_exclusive(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        run(tmp_path, "--line-width", "1", "--line-spots", "4")
+    assert exc.value.code == 2
+
+
+def test_border_and_border_spots_are_mutually_exclusive(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        run(tmp_path, "--invert", "--border", "0.5", "--border-spots", "3")
+    assert exc.value.code == 2
+
+
+def test_border_spots_under_one_is_rejected(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        run(tmp_path, "--invert", "--border-spots", "0.5")
+    assert exc.value.code == 2
+
+
+def test_line_spots_must_be_positive(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        run(tmp_path, "--line-spots", "0")
+    assert exc.value.code == 2
+
+
+def test_border_spots_sidesteps_the_millimetre_border_check(tmp_path):
+    # 0.4 mm of border cannot hold a 0.5 mm beam, but one spot always can.
+    with pytest.raises(SystemExit):
+        run(tmp_path, "--invert", "--spot", "0.5")
+    code, _ = run(tmp_path, "--invert", "--spot", "0.5", "--border-spots", "1")
+    assert code == 0

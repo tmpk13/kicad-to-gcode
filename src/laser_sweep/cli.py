@@ -32,8 +32,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     line = parser.add_argument_group("line geometry")
-    line.add_argument("--line-length", type=float, default=10.0, help="mm")
-    line.add_argument("--line-width", type=float, default=1.0, help="mm")
+    line.add_argument("--line-length", type=float, default=5.0, help="mm")
+    width = line.add_mutually_exclusive_group()
+    width.add_argument("--line-width", type=float, default=0.5, help="mm")
+    width.add_argument(
+        "--line-spots",
+        type=float,
+        help="line width as a multiple of each block's own spot size, so every"
+        " block burns the same number of passes instead of the same mm",
+    )
     line.add_argument(
         "--overlap",
         type=float,
@@ -53,11 +60,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="clear a border around an uncut island instead of burning a solid"
         " line; --line-width is then the width left standing",
     )
-    line.add_argument(
+    border = line.add_mutually_exclusive_group()
+    border.add_argument(
         "--border",
         type=float,
         default=0.4,
         help="mm cleared around the island, --invert only",
+    )
+    border.add_argument(
+        "--border-spots",
+        type=float,
+        help="border as a multiple of each block's own spot size, --invert only",
     )
     line.add_argument(
         "--frame-order",
@@ -158,14 +171,23 @@ def _config(args: argparse.Namespace) -> layout.SweepConfig:
         raise ValueError("passes must be >= 1")
     if not 0.0 <= args.overlap < 1.0:
         raise ValueError("overlap must be in [0, 1)")
+    if args.line_spots is not None and args.line_spots <= 0:
+        raise ValueError("line-spots must be > 0")
     if args.invert:
-        if args.border <= 0:
+        if args.border_spots is not None:
+            if args.border_spots < 1.0:
+                raise ValueError(
+                    f"border-spots {args.border_spots:g} is under 1, so the frame"
+                    " would be narrower than the beam cutting it; use 1 or more"
+                )
+        elif args.border <= 0:
             raise ValueError("border must be > 0")
-        if args.border < max(spots):
+        elif args.border < max(spots):
             raise ValueError(
                 f"border {args.border:g} mm is narrower than the widest spot"
                 f" {max(spots):g} mm, so the frame cannot be cut without eating"
-                " into the island; raise --border or lower --spot"
+                " into the island; raise --border, lower --spot, or size it in"
+                " spots with --border-spots"
             )
     return layout.SweepConfig(
         powers=powers,
@@ -176,8 +198,10 @@ def _config(args: argparse.Namespace) -> layout.SweepConfig:
         overlap=args.overlap,
         passes=args.passes,
         fill=args.fill,
+        line_spots=args.line_spots,
         invert=args.invert,
         border=args.border,
+        border_spots=args.border_spots,
         frame_order=args.frame_order,
         gap_x=args.gap_x,
         gap_y=args.gap_y,

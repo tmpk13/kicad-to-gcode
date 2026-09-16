@@ -50,6 +50,31 @@ passes instead of turning it around.
 A solid line is a stroked centerline: `--line-width` is burned exactly, but
 the ends run half a spot past `--line-length`.
 
+## Sizing in spots
+
+`--line-spots N` replaces `--line-width` and `--border-spots N` replaces
+`--border`, sizing them from each block's own spot instead of in millimetres.
+Every block then burns the same number of passes, and the physical size scales
+with the spot.
+
+```sh
+uv run laser-sweep --line-spots 4 --spot 0.05,0.1,0.15
+```
+
+This measures the beam directly. `N` passes stepped by an assumed spot `d`
+burn a line of `(N - 1) * d + d_true`, so:
+
+```
+d_true = measured_width - (N - 1) * d
+```
+
+Inverted, `--border-spots N` holds the island at a fixed width while the
+frame scales, and the island comes out `width - (d_true - d)` wide. `N` must
+be at least 1, since a frame thinner than the beam cannot be cut.
+
+Blocks stay on a common grid: the pitch follows the largest block, so cells
+line up across blocks even when they differ in size.
+
 ## Inverted lines
 
 `--invert` swaps the burn: each cell clears a `--border` frame around an
@@ -91,10 +116,14 @@ classDiagram
         line_length, line_width
         overlap, passes, fill
         invert, border, frame_order
+        line_spots, border_spots
     }
     class layout {
         build(config) Layout
         cell_paths(...)
+        line_width_for(...)
+        border_for(...)
+        slot_size(config)
         fill_line(...)
         pass_offsets(...)
         frame_loops(...)

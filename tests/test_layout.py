@@ -224,8 +224,8 @@ def _height(loop) -> float:
 
 
 def test_inverted_cells_take_up_the_island_plus_two_borders():
-    assert layout.cell_size(config()) == (10.0, 1.0)
-    assert layout.cell_size(config(invert=True, border=0.5)) == (11.0, 2.0)
+    assert layout.cell_size(config(), 0.1) == (10.0, 1.0)
+    assert layout.cell_size(config(invert=True, border=0.5), 0.1) == (11.0, 2.0)
 
 
 def test_inverted_cells_do_not_collide():
@@ -265,3 +265,63 @@ def test_inverted_burn_bounds_match_island_plus_border():
     min_x, min_y, max_x, max_y = plan.burn_bounds
     assert max_x - min_x == pytest.approx(10.0 + 1.0)
     assert max_y - min_y == pytest.approx(0.5 + 1.0)
+
+
+def test_sizes_resolve_to_millimetres_or_a_spot_multiple():
+    fixed = config(line_width=0.5, border=0.4)
+    assert layout.line_width_for(fixed, 0.1) == 0.5
+    assert layout.border_for(fixed, 0.1) == 0.4
+
+    scaled = config(line_spots=4.0, border_spots=3.0)
+    assert layout.line_width_for(scaled, 0.05) == pytest.approx(0.2)
+    assert layout.line_width_for(scaled, 0.15) == pytest.approx(0.6)
+    assert layout.border_for(scaled, 0.1) == pytest.approx(0.3)
+
+
+def test_a_spot_multiple_width_burns_the_same_pass_count_in_every_block():
+    spots = [0.05, 0.1, 0.15, 0.2]
+    plan = layout.build(config(spots=spots, line_spots=4.0))
+    for cell in plan.cells:
+        offsets = layout.pass_offsets(cell.width, cell.spot, 0.0)
+        assert len(offsets) == 4
+        assert cell.width == pytest.approx(4 * cell.spot)
+
+
+def test_a_spot_multiple_border_burns_the_same_loop_count_in_every_block():
+    spots = [0.05, 0.1, 0.15, 0.2]
+    plan = layout.build(
+        config(spots=spots, invert=True, border_spots=3.0, line_width=0.5)
+    )
+    for cell in plan.cells:
+        assert len(layout.frame_offsets(cell.border, cell.spot, 0.0)) == 3
+        assert len(cell.paths) == 3
+        # The island is fixed in mm, so it survives at the same width everywhere.
+        assert cell.width == 0.5
+
+
+def test_cells_record_the_size_they_were_built_with():
+    plan = layout.build(config(spots=[0.1, 0.2], line_spots=3.0, border_spots=2.0))
+    by_spot = {cell.spot: cell for cell in plan.cells}
+    assert by_spot[0.1].width == pytest.approx(0.3)
+    assert by_spot[0.2].width == pytest.approx(0.6)
+    assert by_spot[0.1].border == pytest.approx(0.2)
+
+
+def test_slot_size_follows_the_largest_block():
+    scaled = config(spots=[0.05, 0.2], line_spots=4.0)
+    assert layout.slot_size(scaled)[1] == pytest.approx(0.8)
+    assert layout.cell_size(scaled, 0.05)[1] == pytest.approx(0.2)
+
+
+def test_blocks_stay_aligned_when_cells_differ_in_size():
+    plan = layout.build(config(spots=[0.05, 0.2], line_spots=4.0))
+    first = sorted({cell.center[0] for cell in plan.cells if cell.block == 0})
+    second = sorted({cell.center[0] for cell in plan.cells if cell.block == 1})
+    assert first == pytest.approx(second)
+
+
+def test_spot_multiple_lines_keep_their_burned_width():
+    plan = layout.build(config(spots=[0.05, 0.2], line_spots=4.0, labels=False))
+    for cell in plan.cells:
+        ys = [y for path in cell.paths for _, y in path]
+        assert max(ys) - min(ys) + cell.spot == pytest.approx(4 * cell.spot)

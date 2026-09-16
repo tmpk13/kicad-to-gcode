@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .gcode import Job
-from .layout import Layout
+from .layout import Layout, border_for, line_width_for
 
 
 def render(layout: Layout, job: Job, gcode_name: str) -> str:
@@ -21,8 +21,8 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
         f"| Power (S) | {_values(config.powers)} |",
         f"| Speed (F) | {_values(config.speeds)} mm/min |",
         f"| Spot size | {_values(config.spots)} mm |",
-        f"| {_shape_name(config)} | {config.line_length:g} x"
-        f" {config.line_width:g} mm |",
+        f"| {_shape_name(config)} | {config.line_length:g} mm x"
+        f" {_sized(config, config.line_spots, config.line_width, line_width_for)} |",
         f"| {_fill_name(config)} | {_fill_value(config)},"
         f" overlap {config.overlap:g}, {config.passes} pass(es) |",
         f"| Cells | {len(layout.cells)} |",
@@ -41,10 +41,12 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
         "",
     ]
     if config.invert:
+        border = _sized(config, config.border_spots, config.border, border_for)
+        island = _sized(config, config.line_spots, config.line_width, line_width_for)
         lines.extend(
             [
-                f"Each cell clears a {config.border:g} mm border around an island"
-                f" meant to be left standing at {config.line_width:g} mm wide.",
+                f"Each cell clears a {border} border around an island meant to be"
+                f" left standing at {island} wide.",
                 "Measure the island, not the cut: a beam wider than the machine is"
                 " set up for eats into it from both sides.",
                 "",
@@ -61,7 +63,7 @@ def _cell_maps(layout: Layout) -> list[str]:
     config = layout.config
     lines = ["## Cell centers (machine mm)", ""]
     for block, spot in enumerate(config.spots):
-        lines.append(f"### Spot {spot:g} mm")
+        lines.append(f"### Spot {spot:g} mm{_block_sizes(config, spot)}")
         lines.append("")
         header = "| Power \\ Speed | " + " | ".join(
             f"{speed:g}" for speed in config.speeds
@@ -90,13 +92,14 @@ def _worksheet(job: Job, invert: bool) -> list[str]:
         "",
         f"Measure each {feature} and fill in the last two columns.",
         "",
-        f"| Spot | Power | Speed | X | Y | Time | Measured {feature} | Notes |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        f"| Spot | Power | Speed | Target {feature} | X | Y | Time"
+        f" | Measured {feature} | Notes |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for record in job.records:
         lines.append(
             f"| {record['spot']:g} | {record['power']:g} | {record['speed']:g}"
-            f" | {record['x']:.2f} | {record['y']:.2f}"
+            f" | {record['width']:g} mm | {record['x']:.2f} | {record['y']:.2f}"
             f" | {record['seconds']:.1f} s |  |  |"
         )
     lines.append("")
@@ -141,8 +144,28 @@ def _fill_name(config) -> str:
 
 def _fill_value(config) -> str:
     if config.invert:
-        return f"{config.border:g} mm border, loops {config.frame_order}"
+        border = _sized(config, config.border_spots, config.border, border_for)
+        return f"{border} border, loops {config.frame_order}"
     return config.fill
+
+
+def _sized(config, count, fixed: float, resolver) -> str:
+    """A fixed millimetre size, or a spot multiple with what it works out as."""
+    if count is None:
+        return f"{fixed:g} mm"
+    values = ", ".join(f"{resolver(config, spot):g}" for spot in config.spots)
+    return f"{count:g} spots ({values} mm)"
+
+
+def _block_sizes(config, spot: float) -> str:
+    """Resolved sizes for one block, shown only when they vary with the spot."""
+    parts = []
+    if config.line_spots is not None:
+        name = "island" if config.invert else "line"
+        parts.append(f"{name} {line_width_for(config, spot):g} mm")
+    if config.invert and config.border_spots is not None:
+        parts.append(f"border {border_for(config, spot):g} mm")
+    return f" ({', '.join(parts)})" if parts else ""
 
 
 def _values(values: list[float]) -> str:

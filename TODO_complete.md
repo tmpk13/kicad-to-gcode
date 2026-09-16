@@ -35,3 +35,17 @@
 - 24 further tests, including gcode round trips proving no cut segment (grown
   by the beam radius) enters the island and the cleared band reaches the full
   border.
+
+## Sizing in spots (2026-09-16)
+
+- `--line-spots N` and `--border-spots N` size the line width and the cleared
+  border from each block's own spot, so every block burns the same number of
+  passes or loops and the coupon reads out the true beam diameter.
+- Mutually exclusive with `--line-width` and `--border`; `--border-spots`
+  under 1 is refused, and it bypasses the millimetre border check since one
+  spot of border is always cuttable.
+- Grid pitch follows the largest block (`layout.slot_size`), so blocks stay
+  aligned when their cells differ in size.
+- Cells record their resolved width and border; gcode header, map headings and
+  a new worksheet target column show what each block works out as.
+- 17 further tests.

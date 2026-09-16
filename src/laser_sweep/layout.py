@@ -27,8 +27,10 @@ class SweepConfig:
     overlap: float = 0.0
     passes: int = 1
     fill: str = SERPENTINE
+    line_spots: float | None = None
     invert: bool = False
     border: float = 0.4
+    border_spots: float | None = None
     frame_order: str = INSIDE_OUT
     gap_x: float = 3.0
     gap_y: float = 2.0
@@ -53,6 +55,8 @@ class Cell:
     power: float
     speed: float
     center: Point
+    width: float = 0.0
+    border: float = 0.0
     paths: list[Polyline] = field(default_factory=list)
 
     @property
@@ -205,32 +209,55 @@ def frame_loops(
     return [list(path) for _ in range(max(1, passes)) for path in single]
 
 
-def cell_size(config: SweepConfig) -> tuple[float, float]:
+def line_width_for(config: SweepConfig, spot: float) -> float:
+    """Line width for one block, in mm or as a multiple of that block's spot."""
+    if config.line_spots is not None:
+        return config.line_spots * spot
+    return config.line_width
+
+
+def border_for(config: SweepConfig, spot: float) -> float:
+    """Cleared border for one block, in mm or as a multiple of its spot."""
+    if config.border_spots is not None:
+        return config.border_spots * spot
+    return config.border
+
+
+def cell_size(config: SweepConfig, spot: float) -> tuple[float, float]:
     """Footprint of one cell: the island plus its frame when inverted."""
+    width = line_width_for(config, spot)
     if config.invert:
+        border = border_for(config, spot)
         return (
-            config.line_length + 2.0 * config.border,
-            config.line_width + 2.0 * config.border,
+            config.line_length + 2.0 * border,
+            width + 2.0 * border,
         )
-    return (config.line_length, config.line_width)
+    return (config.line_length, width)
+
+
+def slot_size(config: SweepConfig) -> tuple[float, float]:
+    """Grid pitch, sized to the largest cell so every block stays aligned."""
+    sizes = [cell_size(config, spot) for spot in config.spots]
+    return (max(size[0] for size in sizes), max(size[1] for size in sizes))
 
 
 def cell_paths(config: SweepConfig, center: Point, spot: float) -> list[Polyline]:
+    width = line_width_for(config, spot)
     if config.invert:
         return frame_loops(
             center,
             config.line_length,
-            config.line_width,
+            width,
             spot,
             config.overlap,
-            config.border,
+            border_for(config, spot),
             config.passes,
             config.frame_order,
         )
     return fill_line(
         center,
         config.line_length,
-        config.line_width,
+        width,
         spot,
         config.overlap,
         config.fill,
@@ -245,7 +272,7 @@ def build(config: SweepConfig) -> Layout:
 
     rows = len(config.powers)
     cols = len(config.speeds)
-    cell_w, cell_h = cell_size(config)
+    cell_w, cell_h = slot_size(config)
     pitch_x = cell_w + config.gap_x
     pitch_y = cell_h + config.gap_y
     grid_w = cols * cell_w + (cols - 1) * config.gap_x
@@ -298,6 +325,8 @@ def build(config: SweepConfig) -> Layout:
                     power=power,
                     speed=speed,
                     center=(cx, cy),
+                    width=line_width_for(config, spot),
+                    border=border_for(config, spot),
                 )
                 cell.paths = cell_paths(config, cell.center, spot)
                 cells.append(cell)
