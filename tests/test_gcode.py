@@ -1,3 +1,4 @@
+import math
 import re
 
 import pytest
@@ -160,3 +161,46 @@ def test_labels_are_burned_with_their_own_power_and_speed():
 def test_output_is_ascii_only():
     text = generate(plan(labels=True)).text
     text.encode("ascii")
+
+
+def xy(line: str) -> tuple[float, float]:
+    match = re.match(r"G[01] X(\S+) Y(\S+)", line)
+    assert match, line
+    return float(match.group(1)), float(match.group(2))
+
+
+def test_approach_enters_every_path_from_below_left():
+    job = generate(plan(powers=[100.0, 200.0]), approach=2.0, return_home=False)
+    rapids = [line for line in job.text.splitlines() if line.startswith("G0 ")]
+    assert len(rapids) == 4
+    for staging, start in zip(rapids[0::2], rapids[1::2]):
+        sx, sy = xy(staging)
+        x, y = xy(start)
+        assert (x - sx, y - sy) == pytest.approx((2.0, 2.0))
+    shape = kinds(job.text)
+    assert shape[4:7] == ["rapid", "rapid", "feed-guard"]
+
+
+def test_approach_travel_counts_both_legs():
+    job = generate(plan(powers=[100.0, 200.0]), approach=2.0, return_home=False)
+    moves = [
+        line for line in job.text.splitlines() if re.match(r"G[01] X", line)
+    ]
+    expected = 0.0
+    position = None
+    for line in moves:
+        point = xy(line)
+        if line.startswith("G0 ") and position is not None:
+            expected += math.dist(position, point)
+        position = point
+    assert job.travel_length == pytest.approx(expected)
+    assert job.travel_length > generate(plan(powers=[100.0, 200.0])).travel_length
+
+
+def test_zero_approach_leaves_the_output_unchanged():
+    assert generate(plan(), approach=0.0).text == generate(plan()).text
+    assert "Approach:" not in generate(plan()).text
+
+
+def test_approach_is_recorded_in_the_header():
+    assert "Approach:     1.5 mm" in generate(plan(), approach=1.5).text

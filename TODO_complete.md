@@ -49,3 +49,10 @@
 - Cells record their resolved width and border; gcode header, map headings and
   a new worksheet target column show what each block works out as.
 - 17 further tests.
+
+## Approach direction (2026-09-16)
+
+- `--approach N` rapids to a point N mm below and left of every path start
+  and then into it, so each path begins with both axes moving positive and
+  the island-defining +X and +Y sides never follow a direction reversal.
+  Recorded in the gcode header. 6 further tests.

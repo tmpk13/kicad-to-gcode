@@ -234,3 +234,22 @@ def test_border_spots_sidesteps_the_millimetre_border_check(tmp_path):
         run(tmp_path, "--invert", "--spot", "0.5")
     code, _ = run(tmp_path, "--invert", "--spot", "0.5", "--border-spots", "1")
     assert code == 0
+
+
+def test_approach_option_stages_every_path(tmp_path):
+    _, out = run(
+        tmp_path,
+        "--power", "300", "--speed", "500", "--spot", "0.1",
+        "--approach", "2", "--no-labels",
+    )
+    text = out.read_text()
+    assert "Approach:     2 mm" in text
+    rapids = [line for line in text.splitlines() if line.startswith("G0 ")]
+    # staging, start, and the return home
+    assert len(rapids) == 3
+
+
+def test_negative_approach_is_refused(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        run(tmp_path, "--approach", "-1")
+    assert "approach" in capsys.readouterr().err

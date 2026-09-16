@@ -136,6 +136,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-return-home", dest="return_home", action="store_false"
     )
     machine.add_argument(
+        "--approach",
+        type=float,
+        default=0.0,
+        help="mm: rapid to a point this far below and left of every path start,"
+        " then rapid into it, so the first cut moves never reverse an axis and"
+        " backlash stays out of the burned feature; 0 disables",
+    )
+    machine.add_argument(
         "--preamble", action="append", default=[], help="extra line after the header"
     )
     machine.add_argument(
@@ -169,6 +177,8 @@ def _config(args: argparse.Namespace) -> layout.SweepConfig:
         raise ValueError("line length and width must be > 0")
     if args.passes < 1:
         raise ValueError("passes must be >= 1")
+    if args.approach < 0:
+        raise ValueError("approach must be >= 0")
     if not 0.0 <= args.overlap < 1.0:
         raise ValueError("overlap must be in [0, 1)")
     if args.line_spots is not None and args.line_spots <= 0:
@@ -236,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             decimals=args.decimals,
             rapid_rate=args.rapid_rate,
             return_home=args.return_home,
+            approach=args.approach,
             preamble=tuple(args.preamble),
             postamble=tuple(args.postamble),
         ),

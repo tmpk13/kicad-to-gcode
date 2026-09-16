@@ -24,6 +24,7 @@ class GcodeOptions:
     decimals: int = 3
     rapid_rate: float = 3000.0
     return_home: bool = True
+    approach: float = 0.0
     preamble: tuple[str, ...] = ()
     postamble: tuple[str, ...] = ()
 
@@ -70,13 +71,28 @@ class _Writer:
         # -0.000 reads badly on a machine display and confuses diffs.
         return "0" + text[6:] if text.startswith("-0.000") else text
 
+    def rapid(self, target: tuple[float, float]) -> None:
+        """Rapid to `target`, entering it from below left when an approach is set.
+
+        Both axes then arrive moving in the positive direction, so a path whose
+        first moves are +X and +Y never reverses an axis and backlash stays out
+        of the feature being burned.
+        """
+        approach = self.options.approach
+        if approach > 0:
+            self._rapid((target[0] - approach, target[1] - approach))
+        self._rapid(target)
+
+    def _rapid(self, target: tuple[float, float]) -> None:
+        if self.position is not None:
+            self.travel_length += _distance(self.position, target)
+        self.raw(f"G0 X{self.coord(target[0])} Y{self.coord(target[1])}")
+        self.position = target
+
     def path(self, points: Polyline, power: float, speed: float) -> None:
         if len(points) < 2:
             return
-        start = points[0]
-        if self.position is not None:
-            self.travel_length += _distance(self.position, start)
-        self.raw(f"G0 X{self.coord(start[0])} Y{self.coord(start[1])}")
+        self.rapid(points[0])
         # Feed 1 mm/min keeps dynamic power near zero until the cut move sets F.
         self.raw("G1F1")
         self.speed = 1.0
@@ -189,7 +205,7 @@ def _label_seconds(layout: Layout) -> float:
 def _header_comments(layout: Layout, options: GcodeOptions) -> list[str]:
     config = layout.config
     min_x, min_y, max_x, max_y = layout.burn_bounds
-    return [
+    lines = [
         "Laser parameter sweep",
         f"Power (S):    {_values(config.powers)} of {options.s_max:g}",
         f"Speed (F):    {_values(config.speeds)} mm/min",
@@ -199,8 +215,14 @@ def _header_comments(layout: Layout, options: GcodeOptions) -> list[str]:
         f" x {len(config.spots)} spot = {len(layout.cells)} cells",
         f"Extent:       X {min_x:.2f} to {max_x:.2f}, Y {min_y:.2f} to {max_y:.2f} mm",
         "Labels:       left P=power, bottom F=speed, top d=spot",
-        "",
     ]
+    if options.approach > 0:
+        lines.append(
+            f"Approach:     {options.approach:g} mm below left of every path"
+            " start, rapid in with both axes positive"
+        )
+    lines.append("")
+    return lines
 
 
 def _sized(count: float | None, fixed: float, resolved: list[float]) -> str:

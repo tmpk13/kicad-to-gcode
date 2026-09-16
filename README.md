@@ -95,6 +95,19 @@ not apply.
 A border narrower than the widest spot in the sweep is refused: that frame
 cannot be cut without eating into the island.
 
+## Backlash
+
+`--approach N` rapids to a point `N` mm below and left of every path start
+and then rapids into it, so both axes enter each path already moving in the
+positive direction. Cell paths begin with a +X move and then a +Y move, so
+the sides that define the line or island never follow a direction reversal
+and backlash stays out of the measured width. Leave `N` mm of travel free
+below and left of the sweep.
+
+```sh
+uv run laser-sweep --invert --line-width 0.2 --border-spots 1 --approach 2
+```
+
 ## Safety
 
 `--s-max` (default 1000) bounds the power range. `--fit WxH` refuses to write
