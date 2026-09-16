@@ -56,3 +56,12 @@
   and then into it, so each path begins with both axes moving positive and
   the island-defining +X and +Y sides never follow a direction reversal.
   Recorded in the gcode header. 6 further tests.
+
+## Backlash compensation (2026-09-16)
+
+- `--backlash X[,Y]` shifts coordinates after every reversal by the measured
+  lost motion, crosses reversals inside a cut with the beam off by closing
+  the path and rapiding the motor through the dead band, and opens the job
+  with a rapid that puts both axes in the positive reference state. Header
+  and map record it. Simulated dead band test proves every cut lands on the
+  geometry with the head never still under power. 11 further tests.

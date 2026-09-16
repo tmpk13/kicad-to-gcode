@@ -253,3 +253,20 @@ def test_negative_approach_is_refused(tmp_path, capsys):
     with pytest.raises(SystemExit):
         run(tmp_path, "--approach", "-1")
     assert "approach" in capsys.readouterr().err
+
+
+def test_backlash_option_takes_one_or_two_values(tmp_path):
+    _, out = run(tmp_path, "--spot", "0.1", "--backlash", "0.2")
+    assert "Backlash:     X 0.2 mm, Y 0.2 mm" in out.read_text()
+    _, out = run(tmp_path, "--spot", "0.1", "--backlash", "0.2,0.1")
+    assert "Backlash:     X 0.2 mm, Y 0.1 mm" in out.read_text()
+    assert "| Backlash | X 0.2 mm, Y 0.1 mm |" in (
+        tmp_path / "sweep.gcode.map.md"
+    ).read_text()
+
+
+@pytest.mark.parametrize("value", ["-0.1", "1,2,3", "abc"])
+def test_bad_backlash_is_refused(tmp_path, capsys, value):
+    with pytest.raises(SystemExit):
+        run(tmp_path, "--backlash", value)
+    assert "backlash" in capsys.readouterr().err

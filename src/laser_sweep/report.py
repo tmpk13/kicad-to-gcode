@@ -25,6 +25,9 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
         f" {_sized(config, config.line_spots, config.line_width, line_width_for)} |",
         f"| {_fill_name(config)} | {_fill_value(config)},"
         f" overlap {config.overlap:g}, {config.passes} pass(es) |",
+    ]
+    lines.extend(_machine_rows(job))
+    lines += [
         f"| Cells | {len(layout.cells)} |",
         f"| Paths | {job.path_count} |",
         f"| Cut length | {job.cut_length:.1f} mm |",
@@ -132,6 +135,19 @@ def _timeline(layout: Layout, job: Job) -> list[str]:
     lines.append("```")
     lines.append("")
     return lines
+
+
+def _machine_rows(job: Job) -> list[str]:
+    options = job.options
+    rows: list[str] = []
+    if options is None:
+        return rows
+    if options.approach > 0:
+        rows.append(f"| Approach | {options.approach:g} mm below left of every path start |")
+    if any(options.backlash):
+        bx, by = options.backlash
+        rows.append(f"| Backlash | X {bx:g} mm, Y {by:g} mm |")
+    return rows
 
 
 def _shape_name(config) -> str:

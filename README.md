@@ -108,6 +108,23 @@ below and left of the sweep.
 uv run laser-sweep --invert --line-width 0.2 --border-spots 1 --approach 2
 ```
 
+`--backlash X[,Y]` compensates a measured lost motion instead. The emitter
+tracks which way each axis last moved and, after a reversal, shifts every
+following coordinate by the backlash so the head lands on the geometry. A
+reversal inside a cut is crossed with the beam off: the path ends, a rapid
+moves the motor through the dead band while the head stays put, and the cut
+resumes with its own `S` and `F`. The job opens with a short rapid to the
+origin and then up and right, so both axes start in the positive state, which
+is the reference: set the work zero after jogging into it from below left.
+Commanded coordinates reach one backlash below and left of the geometry.
+
+```sh
+uv run laser-sweep --invert --line-width 0.2 --border-spots 1 --approach 2 --backlash 0.2,0.15
+```
+
+Measure the values from a coupon burned with `--approach`: the island length
+gives X and the open bottom left corner gives Y, both plus the true spot.
+
 ## Safety
 
 `--s-max` (default 1000) bounds the power range. `--fit WxH` refuses to write

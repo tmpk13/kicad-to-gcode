@@ -144,6 +144,14 @@ def build_parser() -> argparse.ArgumentParser:
         " backlash stays out of the burned feature; 0 disables",
     )
     machine.add_argument(
+        "--backlash",
+        default="0",
+        metavar="X[,Y]",
+        help="mm of lost motion on a direction reversal, one value or X,Y;"
+        " coordinates after a reversal are shifted so the head lands on the"
+        " geometry, and a reversal inside a cut is crossed with the beam off",
+    )
+    machine.add_argument(
         "--preamble", action="append", default=[], help="extra line after the header"
     )
     machine.add_argument(
@@ -160,6 +168,21 @@ def build_parser() -> argparse.ArgumentParser:
         "-n", "--dry-run", action="store_true", help="report but write nothing"
     )
     return parser
+
+
+def _parse_backlash(text: str) -> tuple[float, float]:
+    parts = [part.strip() for part in text.split(",")]
+    if len(parts) not in (1, 2):
+        raise ValueError(f"--backlash expects X or X,Y, got {text!r}")
+    try:
+        values = [float(part) for part in parts]
+    except ValueError as exc:
+        raise ValueError(f"--backlash: {text!r} is not a number") from exc
+    if any(value < 0 for value in values):
+        raise ValueError("backlash must be >= 0")
+    if len(values) == 1:
+        values.append(values[0])
+    return values[0], values[1]
 
 
 def _parse_fit(text: str) -> tuple[float, float]:
@@ -234,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config = _config(args)
+        backlash = _parse_backlash(args.backlash)
     except (RangeError, ValueError) as exc:
         parser.error(str(exc))
 
@@ -247,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
             rapid_rate=args.rapid_rate,
             return_home=args.return_home,
             approach=args.approach,
+            backlash=backlash,
             preamble=tuple(args.preamble),
             postamble=tuple(args.postamble),
         ),
