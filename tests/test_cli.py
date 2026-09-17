@@ -270,3 +270,32 @@ def test_bad_backlash_is_refused(tmp_path, capsys, value):
     with pytest.raises(SystemExit):
         run(tmp_path, "--backlash", value)
     assert "backlash" in capsys.readouterr().err
+
+
+def test_backlash_can_be_swept_into_blocks(tmp_path):
+    _, out = run(tmp_path, "--spot", "0.1", "--backlash-sweep", "0,0.15,0.3")
+    text = out.read_text()
+    assert "Backlash:     swept 0, 0.15, 0.3 mm" in text
+    assert "backlash=0.15 block=1" in text
+    assert "Backlash | swept 0, 0.15, 0.3 mm" in (
+        tmp_path / "sweep.gcode.map.md"
+    ).read_text()
+
+
+def test_a_swept_backlash_multiplies_the_blocks(tmp_path, capsys):
+    run(tmp_path, "--spot", "0.05,0.1", "--power", "500", "--speed", "400",
+        "--backlash-sweep", "0,0.2")
+    # 2 spots x 2 values, one cell each.
+    assert "cells      4" in capsys.readouterr().out
+
+
+def test_a_fixed_and_a_swept_backlash_are_exclusive(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        run(tmp_path, "--backlash", "0.2", "--backlash-sweep", "0,0.2")
+    assert "not allowed with" in capsys.readouterr().err
+
+
+def test_a_negative_swept_backlash_is_refused(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        run(tmp_path, "--backlash-sweep", "-0.1,0.2")
+    assert "must be >= 0" in capsys.readouterr().err

@@ -95,6 +95,13 @@ def check_positive(values: list[float], name: str) -> list[float]:
     return values
 
 
+def check_non_negative(values: list[float], name: str) -> list[float]:
+    for value in values:
+        if value < 0:
+            raise RangeError(f"{name}: values must be >= 0, got {value:g}")
+    return values
+
+
 def check_power(values: list[float], s_max: float) -> list[float]:
     for value in values:
         if value < 0 or value > s_max:

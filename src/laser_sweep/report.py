@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .backlash import format_coord
 from .gcode import Job
-from .layout import Layout, border_for, line_width_for
+from .layout import Layout, blocks, border_for, line_width_for
 
 
 def render(layout: Layout, job: Job, gcode_name: str) -> str:
@@ -27,7 +27,7 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
         f"| {_fill_name(config)} | {_fill_value(config)},"
         f" overlap {config.overlap:g}, {config.passes} pass(es) |",
     ]
-    lines.extend(_machine_rows(job))
+    lines.extend(_machine_rows(job, config))
     lines += [
         f"| Cells | {len(layout.cells)} |",
         f"| Paths | {job.path_count} |",
@@ -39,7 +39,13 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
         "",
         "## Reading the coupon",
         "",
-        "Each block is one spot size, labelled `d` above its top left corner.",
+        "Each block is one spot size"
+        + (
+            " and one assumed backlash, labelled `d` and `b`"
+            if config.backlashes
+            else ", labelled `d`"
+        )
+        + " above its top left corner.",
         "Within a block, rows are power (`P`, left edge, increasing upwards) and",
         "columns are speed (`F`, bottom edge, increasing to the right).",
         "",
@@ -66,8 +72,11 @@ def render(layout: Layout, job: Job, gcode_name: str) -> str:
 def _cell_maps(layout: Layout) -> list[str]:
     config = layout.config
     lines = ["## Cell centers (machine mm)", ""]
-    for block, spot in enumerate(config.spots):
-        lines.append(f"### Spot {spot:g} mm{_block_sizes(config, spot)}")
+    for block, (spot, lash) in enumerate(blocks(config)):
+        heading = f"### Spot {spot:g} mm{_block_sizes(config, spot)}"
+        if lash is not None:
+            heading += f", backlash {lash:g} mm"
+        lines.append(heading)
         lines.append("")
         header = "| Power \\ Speed | " + " | ".join(
             f"{speed:g}" for speed in config.speeds
@@ -91,18 +100,22 @@ def _cell_maps(layout: Layout) -> list[str]:
 
 def _worksheet(job: Job, invert: bool) -> list[str]:
     feature = "island" if invert else "line"
+    swept = any(record.get("backlash") is not None for record in job.records)
+    lash_head = " Backlash |" if swept else ""
     lines = [
         "## Worksheet",
         "",
         f"Measure each {feature} and fill in the last two columns.",
         "",
-        f"| Spot | Power | Speed | Target {feature} | X | Y | Time"
+        f"| Spot |{lash_head} Power | Speed | Target {feature} | X | Y | Time"
         f" | Measured {feature} | Notes |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| --- " * (9 + int(swept)) + "|",
     ]
     for record in job.records:
+        lash = f" {record['backlash']:g} |" if swept else ""
         lines.append(
-            f"| {record['spot']:g} | {record['power']:g} | {record['speed']:g}"
+            f"| {record['spot']:g} |{lash} {record['power']:g}"
+            f" | {record['speed']:g}"
             f" | {record['width']:g} mm | {record['x']:.2f} | {record['y']:.2f}"
             f" | {record['seconds']:.1f} s |  |  |"
         )
@@ -116,19 +129,22 @@ def _timeline(layout: Layout, job: Job) -> list[str]:
         "",
         "```mermaid",
         "gantt",
-        "    title Burn time by spot size block",
+        "    title Burn time by block",
         "    dateFormat X",
         "    axisFormat %M:%S",
         "    section Blocks",
     ]
     start = 0
-    for block, spot in enumerate(layout.config.spots):
+    for block, (spot, lash) in enumerate(blocks(layout.config)):
         seconds = sum(
             record["seconds"] for record in job.records if record["block"] == block
         )
         # Mermaid needs a non-zero duration for the bar to render.
         duration = max(1, int(round(seconds)))
-        lines.append(f"    spot {spot:g} mm :b{block}, {start}, {duration}s")
+        name = f"spot {spot:g} mm"
+        if lash is not None:
+            name += f" backlash {lash:g} mm"
+        lines.append(f"    {name} :b{block}, {start}, {duration}s")
         start += duration
     overhead = int(round(job.seconds)) - start
     if overhead > 0:
@@ -138,14 +154,19 @@ def _timeline(layout: Layout, job: Job) -> list[str]:
     return lines
 
 
-def _machine_rows(job: Job) -> list[str]:
+def _machine_rows(job: Job, config=None) -> list[str]:
     options = job.options
     rows: list[str] = []
     if options is None:
         return rows
     if options.approach > 0:
         rows.append(f"| Approach | {options.approach:g} mm below left of every path start |")
-    if any(options.backlash):
+    if config is not None and config.backlashes:
+        rows.append(
+            f"| Backlash | swept {_values(config.backlashes)} mm,"
+            " one block each, both axes |"
+        )
+    elif any(options.backlash):
         bx, by = options.backlash
         rows.append(f"| Backlash | X {bx:g} mm, Y {by:g} mm |")
     return rows

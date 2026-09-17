@@ -105,3 +105,18 @@
 - 92 further tests, including a round trip that parses the emitted file back
   and proves the beam never touches copper, and that the cleared band reaches
   its full width.
+
+## Backlash as a sweep axis (2026-09-16)
+
+- `--backlash-sweep RANGE` gives every assumed value its own block, so a
+  coupon says what the lost motion is instead of being told. Mutually
+  exclusive with `--backlash`, both axes get the value, 0 is the control.
+- Blocks are the product of spot and backlash; cells carry their block's
+  value and keep identical geometry, and labels read `d0.1 b0.15`.
+- The emitter swaps the value only with both axes in the positive state,
+  pushing them there first when a cut left them negative, so the commanded
+  and head positions cannot drift apart across the swap.
+- Header, map, worksheet column and mermaid timeline all name the value.
+- 20 further tests, including a simulated dead band that proves the block
+  assuming the true value lands every cut on the geometry while the
+  uncompensated block misses by exactly the dead band.

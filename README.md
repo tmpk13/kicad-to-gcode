@@ -131,6 +131,26 @@ uv run laser-sweep --invert --line-width 0.2 --border-spots 1 --approach 2 --bac
 Measure the values from a coupon burned with `--approach`: the island length
 gives X and the open bottom left corner gives Y, both plus the true spot.
 
+### Sweeping the compensation
+
+`--backlash-sweep` takes a range instead of a measurement and gives every
+value its own block, so the coupon says which one is right rather than being
+told. The value applies to both axes; include 0 for an uncompensated control.
+
+```sh
+uv run laser-sweep --invert --line-width 0.25 --border-spots 2 --approach 2 \
+    --spot 0.1 --power 500 --speed 400 --backlash-sweep 0:0.3:4
+```
+
+Blocks are labelled `b<value>` next to the spot size. Read the block whose
+island measures its target length and whose bottom left corner closes: less
+than the true lost motion leaves the island short and the corner open, more
+runs it long. It is the same reading in both axes at once, since X shows up
+in the length and Y in the corner.
+
+The value is only swapped between blocks, never inside a cell, and only with
+both axes in the positive state, so nothing has to be unwound for the swap.
+
 ## Existing files
 
 `laser-backlash` applies the same two treatments to a file from another
@@ -225,11 +245,13 @@ classDiagram
     }
     class SweepConfig {
         powers, speeds, spots
+        backlashes
         line_length, line_width
         invert, border, frame_order
     }
     class layout {
         build(config) Layout
+        blocks(config) spot, backlash
         pass_offsets(...)
         frame_offsets(...)
     }

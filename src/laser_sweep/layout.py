@@ -28,6 +28,7 @@ class SweepConfig:
     passes: int = 1
     fill: str = SERPENTINE
     line_spots: float | None = None
+    backlashes: list[float] | None = None
     invert: bool = False
     border: float = 0.4
     border_spots: float | None = None
@@ -57,6 +58,9 @@ class Cell:
     center: Point
     width: float = 0.0
     border: float = 0.0
+    # The lost motion this cell is compensated for, or None when the job runs
+    # on one value throughout.
+    backlash: float | None = None
     paths: list[Polyline] = field(default_factory=list)
 
     @property
@@ -265,6 +269,18 @@ def cell_paths(config: SweepConfig, center: Point, spot: float) -> list[Polyline
     )
 
 
+def blocks(config: SweepConfig) -> list[tuple[float, float | None]]:
+    """The (spot, backlash) pair of each block, in layout and cut order.
+
+    Sweeping backlash gives every value its own block, since the value has to
+    be swapped between cells and not within one.
+    """
+    lashes: list[float | None] = (
+        list(config.backlashes) if config.backlashes else [None]
+    )
+    return [(spot, lash) for spot in config.spots for lash in lashes]
+
+
 def build(config: SweepConfig) -> Layout:
     """Place every cell and label, then move the result onto the origin."""
     if not config.powers or not config.speeds or not config.spots:
@@ -306,7 +322,7 @@ def build(config: SweepConfig) -> Layout:
     cells: list[Cell] = []
     label_paths: list[Polyline] = []
 
-    for block_index, spot in enumerate(config.spots):
+    for block_index, (spot, lash) in enumerate(blocks(config)):
         bc = block_index % block_cols
         br = block_index // block_cols
         # Blocks read left to right, then downwards, so block 0 is top left.
@@ -327,6 +343,7 @@ def build(config: SweepConfig) -> Layout:
                     center=(cx, cy),
                     width=line_width_for(config, spot),
                     border=border_for(config, spot),
+                    backlash=lash,
                 )
                 cell.paths = cell_paths(config, cell.center, spot)
                 cells.append(cell)
@@ -356,7 +373,7 @@ def build(config: SweepConfig) -> Layout:
                 )
             label_paths.extend(
                 font.text_paths(
-                    _label("d", spot, config),
+                    _block_label(spot, lash, config),
                     grid_x0,
                     grid_y0 + grid_h + config.label_gutter,
                     config.label_height,
@@ -387,6 +404,13 @@ def build(config: SweepConfig) -> Layout:
         label_speed=label_speed,
         bounds=bounds,
     )
+
+
+def _block_label(spot: float, lash: float | None, config: SweepConfig) -> str:
+    text = _label("d", spot, config)
+    if lash is not None:
+        text += " " + _label("b", lash, config)
+    return text
 
 
 def _label(prefix: str, value: float, config: SweepConfig) -> str:

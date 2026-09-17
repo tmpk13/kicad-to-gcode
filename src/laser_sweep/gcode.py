@@ -95,6 +95,24 @@ class _Writer:
         x, y = self.motion.move(target)
         self.raw(f"G0 X{self.coord(x)} Y{self.coord(y)}")
 
+    def retune(self, backlash: tuple[float, float]) -> None:
+        """Compensate for a different lost motion from here on.
+
+        The commanded position only differs from the head position while an
+        axis is in the negative state, so the value is swapped with both axes
+        positive and nothing has to be unwound. A positive rapid longer than
+        either dead band puts them there.
+        """
+        if tuple(backlash) == tuple(self.motion.backlash):
+            return
+        reach = 2.0 * max(max(backlash), max(self.motion.backlash))
+        if self.position is not None and any(
+            direction < 0 for direction in self.motion.direction
+        ):
+            self.comment(f"both axes into the positive state before {backlash[0]:g} mm")
+            self._rapid((self.position[0] + reach, self.position[1] + reach))
+        self.motion.backlash = (backlash[0], backlash[1])
+
     def _take_up(self, target: tuple[float, float]) -> None:
         """Cross the dead band with the beam off before a cut reverses an axis."""
         take = self.motion.take_up(target)
@@ -166,12 +184,13 @@ def generate(layout: Layout, options: GcodeOptions) -> Job:
     for line in _header_comments(layout, options):
         writer.comment(line)
 
-    if writer.motion.active:
+    widest = max([*options.backlash, *(config.backlashes or [0.0])])
+    if widest > 0:
         # Any positive move longer than the dead band ends in the positive
         # state, wherever the machine was and whichever way it last moved.
         writer.blank()
         writer.comment("both axes into the positive state")
-        reach = 2.0 * max(options.backlash)
+        reach = 2.0 * widest
         ox, oy = config.origin
         writer._rapid((ox, oy))
         writer._rapid((ox + reach, oy + reach))
@@ -179,10 +198,13 @@ def generate(layout: Layout, options: GcodeOptions) -> Job:
     records: list[dict] = []
     for cell in layout.travel_order():
         writer.blank()
+        lash = "" if cell.backlash is None else f" backlash={cell.backlash:g}"
         writer.comment(
             f"cell spot={cell.spot:g} power={cell.power:g} speed={cell.speed:g}"
-            f" block={cell.block} row={cell.row} col={cell.col}"
+            f"{lash} block={cell.block} row={cell.row} col={cell.col}"
         )
+        if cell.backlash is not None:
+            writer.retune((cell.backlash, cell.backlash))
         before = writer.cut_length
         for path in cell.paths:
             writer.path(path, cell.power, cell.speed)
@@ -193,6 +215,8 @@ def generate(layout: Layout, options: GcodeOptions) -> Job:
         writer.comment(
             f"labels power={layout.label_power:g} speed={layout.label_speed:g}"
         )
+        # Labels are read, not measured, so they run on the job's own value.
+        writer.retune(options.backlash)
         for path in layout.label_paths:
             writer.path(path, layout.label_power, layout.label_speed)
 
@@ -309,6 +333,7 @@ def _record(cell: Cell, length: float) -> dict:
         "spot": cell.spot,
         "power": cell.power,
         "speed": cell.speed,
+        "backlash": cell.backlash,
         "x": cell.center[0],
         "y": cell.center[1],
         "width": cell.width,
@@ -337,14 +362,20 @@ def _header_comments(layout: Layout, options: GcodeOptions) -> list[str]:
         f"Grid:         {len(config.speeds)} speed x {len(config.powers)} power"
         f" x {len(config.spots)} spot = {len(layout.cells)} cells",
         f"Extent:       X {min_x:.2f} to {max_x:.2f}, Y {min_y:.2f} to {max_y:.2f} mm",
-        "Labels:       left P=power, bottom F=speed, top d=spot",
+        "Labels:       left P=power, bottom F=speed, top d=spot"
+        + (", b=backlash" if config.backlashes else ""),
     ]
     if options.approach > 0:
         lines.append(
             f"Approach:     {options.approach:g} mm below left of every path"
             " start, rapid in with both axes positive"
         )
-    if any(options.backlash):
+    if config.backlashes:
+        lines.append(
+            f"Backlash:     swept {_values(config.backlashes)} mm, one block each,"
+            " both axes, crossed with the beam off at every reversal"
+        )
+    elif any(options.backlash):
         bx, by = options.backlash
         lines.append(
             f"Backlash:     X {bx:g} mm, Y {by:g} mm, crossed with the beam off"

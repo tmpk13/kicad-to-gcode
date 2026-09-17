@@ -8,7 +8,13 @@ from pathlib import Path
 
 from . import __version__, gcode, layout, preview, report
 from .backlash import parse_backlash
-from .params import RangeError, check_positive, check_power, parse_range
+from .params import (
+    RangeError,
+    check_non_negative,
+    check_positive,
+    check_power,
+    parse_range,
+)
 
 RANGE_HELP = (
     "value, comma list, min:max:count[:log], or min:max:+step"
@@ -144,13 +150,21 @@ def build_parser() -> argparse.ArgumentParser:
         " then rapid into it, so the first cut moves never reverse an axis and"
         " backlash stays out of the burned feature; 0 disables",
     )
-    machine.add_argument(
+    lash = machine.add_mutually_exclusive_group()
+    lash.add_argument(
         "--backlash",
         default="0",
         metavar="X[,Y]",
         help="mm of lost motion on a direction reversal, one value or X,Y;"
         " coordinates after a reversal are shifted so the head lands on the"
         " geometry, and a reversal inside a cut is crossed with the beam off",
+    )
+    lash.add_argument(
+        "--backlash-sweep",
+        metavar="RANGE",
+        help="sweep the compensation instead of assuming it: one block per"
+        " value, applied to both axes, so the coupon says which value is"
+        f" right. Include 0 for an uncompensated control. {RANGE_HELP}",
     )
     machine.add_argument(
         "--preamble", action="append", default=[], help="extra line after the header"
@@ -192,6 +206,11 @@ def _config(args: argparse.Namespace) -> layout.SweepConfig:
         raise ValueError("overlap must be in [0, 1)")
     if args.line_spots is not None and args.line_spots <= 0:
         raise ValueError("line-spots must be > 0")
+    backlashes = None
+    if args.backlash_sweep is not None:
+        backlashes = check_non_negative(
+            parse_range(args.backlash_sweep, "backlash"), "backlash"
+        )
     if args.invert:
         if args.border_spots is not None:
             if args.border_spots < 1.0:
@@ -218,6 +237,7 @@ def _config(args: argparse.Namespace) -> layout.SweepConfig:
         passes=args.passes,
         fill=args.fill,
         line_spots=args.line_spots,
+        backlashes=backlashes,
         invert=args.invert,
         border=args.border,
         border_spots=args.border_spots,
