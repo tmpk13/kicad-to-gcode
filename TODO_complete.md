@@ -120,3 +120,9 @@
 - 20 further tests, including a simulated dead band that proves the block
   assuming the true value lands every cut on the geometry while the
   uncompensated block misses by exactly the dead band.
+
+## No cuts inside pads
+
+- Exposed contours are wound counterclockwise before the nonzero union, so a
+  macro pad with clockwise parts no longer leaves a hole that gets a loop.
+- Tests: a synthetic two-winding pad and the fixture board with no copper holes.

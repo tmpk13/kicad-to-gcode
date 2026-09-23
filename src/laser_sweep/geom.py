@@ -191,7 +191,7 @@ def _batch(figures: list) -> Polygons:
     for figure in figures:
         if isinstance(figure, Fill):
             if all(exposure for exposure, _ in figure.parts):
-                plain.extend(list(contour) for _, contour in figure.parts)
+                plain.extend(_solid(contour) for _, contour in figure.parts)
             else:
                 resolved = union(resolved, _resolve(figure))
         elif isinstance(figure, Draw) and figure.width > 0:
@@ -202,6 +202,19 @@ def _batch(figures: list) -> Polygons:
     for (width, cap), paths in strokes.items():
         batch = union(batch, stroke(paths, width, cap))
     return union(batch, resolved) if resolved else batch
+
+
+def _solid(contour) -> Contour:
+    """An exposed contour wound counterclockwise, whichever way it came.
+
+    Aperture macros mix windings (a roundrect pad's side rectangles run
+    clockwise), and under the nonzero rule a clockwise part laid over a
+    counterclockwise one cancels to a hole in the middle of the pad.
+    """
+    points = list(contour)
+    if pyclipper.Orientation(_up([points])[0]):
+        return points
+    return points[::-1]
 
 
 def _resolve(fill: Fill) -> Polygons:

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
 from laser_sweep import geom, gerber
+
+DATA = Path(__file__).parent / "data"
 
 
 def square(x: float, y: float, size: float) -> list[tuple[float, float]]:
@@ -116,6 +119,28 @@ def test_copper_resolves_an_aperture_hole():
     )
     area = geom.area(geom.copper(image))
     assert area == pytest.approx(math.pi * (1.0**2 - 0.5**2), abs=1e-2)
+
+
+def test_copper_fills_a_macro_pad_wound_both_ways():
+    # A roundrect pad arrives as a macro: a center rectangle plus side
+    # rectangles, which KiCad writes clockwise. Where the two windings overlap
+    # they must still be copper, not a hole in the pad.
+    center = square(0, 0, 2)
+    side = [(-0.5, 0.5), (-0.5, 1.5), (2.5, 1.5), (2.5, 0.5)]
+    image = gerber.Image(
+        figures=[gerber.Fill(((True, tuple(center)), (True, tuple(side))))]
+    )
+    copper = geom.copper(image)
+    assert len(copper) == 1
+    assert geom.area(copper) == pytest.approx(5.0, abs=1e-6)
+
+
+def test_copper_of_the_fixture_board_has_no_hole_inside_a_pad():
+    image = gerber.read(DATA / "board-F_Cu.gbr")
+    copper = geom.copper(image)
+    holes = [c for c in copper if geom.area([c]) < 0]
+    # The fixture's pads are all solid; every hole would be a cut in a pad.
+    assert holes == []
 
 
 def test_bounds_of_nothing_is_the_origin():
