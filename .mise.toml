@@ -1,3 +1,19 @@
 [tools]
 python = "3.12"
 uv = "latest"
+
+[tasks.sweep]
+description = "Write a laser parameter sweep: gcode, markdown map and SVG preview"
+run = "uv run laser-sweep"
+
+[tasks.iso]
+description = "Write PCB isolation gcode from a KiCad board or a gerber"
+run = "uv run laser-iso"
+
+[tasks.backlash]
+description = "Add backlash compensation to a gcode file from another tool"
+run = "uv run laser-backlash"
+
+[tasks.test]
+description = "Run the pytest suite"
+run = "uv run pytest"
